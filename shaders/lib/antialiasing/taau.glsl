@@ -120,6 +120,39 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
         }
     #endif
 
+    #ifdef CLOUDS_REIMAGINED
+        // Clouds do not write geometry depth. Against the sky, use their raymarched distance so camera
+        // translation follows the cloud instead of the far plane. Unbound clouds retain baseline TAAU.
+        if (!dynamic && z0 == 1.0 && z1 == 1.0
+            #if defined DISTANT_HORIZONS || defined VOXY
+                && !lodChunk
+            #endif
+        ) {
+            float cloudDepth = texelFetch(colortex5, inputTexel, 0).a;
+            // A sky sample can contribute to a pixel partly covered by cloud. Keep its history aligned with
+            // that cloud across the 2x2 reconstruction footprint, using at most three additional depth reads.
+            if (cloudDepth == 1.0) {
+                ivec2 cloudBase = ivec2(floor(inputPos - 0.5));
+                for (int y = 0; y < 2; y++) {
+                    for (int x = 0; x < 2; x++) {
+                        ivec2 coord = clamp(cloudBase + ivec2(x, y), ivec2(0), scaledViewSize - 1);
+                        if (all(equal(coord, inputTexel))) continue;
+                        float depth = texelFetch(colortex5, coord, 0).a;
+                        if (depth > 0.0 && any(notEqual(coord, scaledViewSize - 1)))
+                            cloudDepth = min(cloudDepth, depth);
+                    }
+                }
+            }
+
+            // Alpha 1 is also the no-cloud value; the top-right texel may hold the light-shaft factor.
+            if (cloudDepth > 0.0 && cloudDepth < 1.0 && any(notEqual(inputTexel, scaledViewSize - 1))) {
+                float cloudDistance = cloudDepth * cloudDepth * renderDistance;
+                vec4 cloudViewPos = vec4(normalize(viewPos1.xyz) * cloudDistance, 1.0);
+                prvCoord = Reprojection(cloudViewPos);
+            }
+        }
+    #endif
+
     #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
         vec3 tempColor = textureCatmullRom(colortex2, prvCoord, view);
     #else
