@@ -63,6 +63,8 @@
 
 //Common Functions//
 #if WORLD_BLUR > 0
+    #include "/lib/util/renderScaleSampling.glsl"
+
     void DoWorldBlur(inout vec3 color, float z1, float lViewPos0) {
         if (z1 < 0.56) return;
         vec3 dof = vec3(0.0);
@@ -111,11 +113,11 @@
                 float lod = log2(viewHeight * aspectRatio * coc * 0.75 / 320.0);
                 lod += log2(RENDER_SCALE_M); // Render Scale: same blur in screen terms
                 #ifndef WB_CHROMATIC
-                    dof += texture2DLod(colortex0, ToBufferUV(texCoord + offset), lod).rgb;
+                    dof += SampleScaledBufferLod(colortex0, texCoord + offset, lod).rgb;
                 #else
-                    dof += vec3(texture2DLod(colortex0, ToBufferUV(texCoord + offset + aberration), lod).r,
-                                texture2DLod(colortex0, ToBufferUV(texCoord + offset             ), lod).g,
-                                texture2DLod(colortex0, ToBufferUV(texCoord + offset - aberration), lod).b);
+                    dof += vec3(SampleScaledBufferLod(colortex0, texCoord + offset + aberration, lod).r,
+                                SampleScaledBufferLod(colortex0, texCoord + offset             , lod).g,
+                                SampleScaledBufferLod(colortex0, texCoord + offset - aberration, lod).b);
                 #endif
             }
             dof /= 18.0;
