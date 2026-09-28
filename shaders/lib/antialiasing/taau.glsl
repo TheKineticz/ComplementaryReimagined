@@ -4,7 +4,7 @@
 // output pixel takes the scaled render's sample nearest to it, weighted by how close that sample landed to the
 // pixel's center, and accumulates it into the full resolution history. With the TAA jitter walking the samples
 // through each pixel, a still image converges to full resolution detail. Where there is no usable history
-// (first frame, off-screen, rejected), a bilinear upscale of the current frame is used instead.
+// (first frame, off-screen, invalid), a Catmull-Rom upscale of the current frame is used instead.
 //
 // Entities, particles, lightning and the hand move by themselves and have no motion vectors. They are jittered and
 // accumulated too, but with a shorter history, clipped harder and cut the more the clip corrects it, and their current
@@ -20,24 +20,14 @@ vec3 YCoCgToRGB(vec3 c) {
 }
 
 vec2 GetScaledInputPos() {
-    #ifdef TAA
-        vec2 jitterPx = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5; // where this frame sampled, in scaled pixels
-    #else
-        vec2 jitterPx = vec2(0.0);
-    #endif
+    vec2 jitterPx = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5; // where this frame sampled, in scaled pixels
     return texCoord * scaledViewSizeF + jitterPx;
 }
 
-vec3 GetBilinearUpscale(vec2 inputPos) {
-    vec2 uv = clamp(inputPos, vec2(0.5), scaledViewSizeF - 0.5) / view;
-    return texture2DLod(colortex3, uv, 0.0).rgb;
-}
-
 // Catmull-Rom over the scaled image (as textureCatmullRom in taa.glsl), for pixels upscaled from the current frame
-// alone. inputPos is kept 1.5 texels inside the left/bottom edge and 2 inside the right/top one, so the 4x4 footprint
-// never reads the unused part of the targets.
+// alone. Clamp the taps to rendered texel centers, preserving the sample position at the screen edges.
 vec3 GetSharpUpscale(vec2 inputPos) {
-    vec2 position = clamp(inputPos, vec2(1.5), scaledViewSizeF - 2.0);
+    vec2 position = clamp(inputPos, vec2(0.5), scaledViewSizeF - 0.5);
     vec2 centerPosition = floor(position - 0.5) + 0.5;
     vec2 f = position - centerPosition;
     vec2 f2 = f * f;
@@ -50,9 +40,9 @@ vec3 GetSharpUpscale(vec2 inputPos) {
     vec2 w3 =         c  * f3 -                c * f2;
 
     vec2 w12 = w1 + w2;
-    vec2 tc12 = (centerPosition + w2 / w12) / view;
-    vec2 tc0 = (centerPosition - 1.0) / view;
-    vec2 tc3 = (centerPosition + 2.0) / view;
+    vec2 tc12 = clamp(centerPosition + w2 / w12, vec2(0.5), scaledViewSizeF - 0.5) / view;
+    vec2 tc0 = clamp(centerPosition - 1.0, vec2(0.5), scaledViewSizeF - 0.5) / view;
+    vec2 tc3 = clamp(centerPosition + 2.0, vec2(0.5), scaledViewSizeF - 0.5) / view;
     vec4 color = vec4(texture2DLod(colortex3, vec2(tc12.x, tc0.y ), 0).rgb, 1.0) * (w12.x * w0.y ) +
                  vec4(texture2DLod(colortex3, vec2(tc0.x,  tc12.y), 0).rgb, 1.0) * (w0.x  * w12.y) +
                  vec4(texture2DLod(colortex3, vec2(tc12.x, tc12.y), 0).rgb, 1.0) * (w12.x * w12.y) +
@@ -61,7 +51,6 @@ vec3 GetSharpUpscale(vec2 inputPos) {
     return color.rgb / color.a;
 }
 
-#ifdef TAA
 // The native TAA's depth-edge and colour bounds, sampled at a clamped scaled-image texel.
 void TAAUNeighbourhoodSample(ivec2 coord, float z0, float z1, inout float edge, inout vec3 minclr, inout vec3 maxclr) {
     float z0CheckLinear = GetLinearDepth(texelFetch(depthtex0, coord, 0).r);
@@ -85,13 +74,11 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     vec2 inputPos = GetScaledInputPos();
     ivec2 inputTexel = clamp(ivec2(inputPos), ivec2(0), scaledViewSize - 1);
 
-    vec3 currentSmooth = GetBilinearUpscale(inputPos);
     vec3 currentSample = texelFetch(colortex3, inputTexel, 0).rgb;
     // Distance from this pixel's center to where that sample was taken, in output pixels
     vec2 sampleOffset = (vec2(inputTexel) + 0.5 - inputPos) / renderScaleV;
     float sampleWeight = exp(-2.5 * dot(sampleOffset, sampleOffset));
 
-    color = currentSmooth;
     temp = vec3(0.0);
     tempAlpha = 1.0;
 
@@ -154,6 +141,7 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     #endif
 
     if (tempColor == vec3(0.0) || any(isnan(tempColor))) { // Fixes the first frame and nans
+        color = GetSharpUpscale(inputPos);
         temp = color;
         return;
     }
@@ -235,9 +223,9 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
 
     blendFactor *= max(exp(-velocityFactor) * blendVariable + blendConstant - min(length(cameraPosition - previousCameraPosition), 0.05) * edge, blendMinimum);
 
-    // Off-screen history (blendFactor 0) falls back to the bilinear upscale.
+    // Off-screen history (blendFactor 0) falls back to the sharp current frame.
     if (blendFactor == 0.0) {
-        color = currentSmooth;
+        color = GetSharpUpscale(inputPos);
     } else if (dynamic) {
         // A shorter history, and less of it the more the clip above had to correct it. The current frame takes its
         // full share, from the nearest sample where that covers this pixel well and a sharp upscale elsewhere.
@@ -254,4 +242,3 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     }
     temp = color;
 }
-#endif

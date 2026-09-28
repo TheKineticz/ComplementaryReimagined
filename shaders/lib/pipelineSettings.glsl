@@ -16,7 +16,7 @@ const int colortex18Format = R8;            //shadow for voxy chunks
 const int colortex19Format = RGBA8;         //scene image for voxy reflections
 */
 
-#if defined IS_IRIS && RENDER_SCALE_PCT < 100 && defined TAA
+#ifdef TAAU
     /*
     const int colortex6Format = RGBA8; // Alpha: distance blend for moving translucent geometry
     */

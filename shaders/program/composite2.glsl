@@ -5,7 +5,7 @@
 #include "/lib/common.glsl"
 
 #ifdef FRAGMENT_SHADER
-    #if defined IS_IRIS && RENDER_SCALE_PCT < 100 && WORLD_BLUR == 2 && WB_DOF_FOCUS == 0
+    #if defined TAAU && WORLD_BLUR == 2 && WB_DOF_FOCUS == 0
         // Iris samples the center of the whole depth target, not the scaled viewport.
         // Keep our own 1x1 history; half-float depth loses too much precision at long distances.
         uniform sampler2D colortex9;
@@ -14,15 +14,10 @@
         */
         const bool colortex9Clear = false;
 
-        #ifdef TAA
-            #include "/lib/antialiasing/jitter.glsl"
-        #endif
+        #include "/lib/antialiasing/jitter.glsl"
 
         void main() {
-            vec2 center = vec2(0.5);
-            #ifdef TAA
-                center = TAAJitter(center, 0.5);
-            #endif
+            vec2 center = TAAJitter(vec2(0.5), 0.5);
             ivec2 centerTexel = clamp(ivec2(center * scaledViewSizeF), ivec2(0), scaledViewSize - 1);
             float currentDepth = texelFetch(depthtex1, centerTexel, 0).r;
             float previousDepth = texelFetch(colortex9, ivec2(0), 0).r;

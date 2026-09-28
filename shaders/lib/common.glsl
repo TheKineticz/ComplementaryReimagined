@@ -582,7 +582,8 @@
     // TAA upscales it to the full screen. Screen UVs (0-1 across the screen) and buffer UVs of the scaled image
     // are converted with the macros below; at 1.0 they are exact no-ops. Iris only: OptiFine's scale.<pass> doesn't
     // match Iris'. RENDER_SCALE_PCT is in percent so the preprocessor can compare it.
-    #if defined IS_IRIS && RENDER_SCALE_PCT < 100
+    #if defined IS_IRIS && RENDER_SCALE_PCT < 100 && defined TAA
+        #define TAAU 1 // Internal flag, not a boolean option. Keep shaders.properties in sync.
         #if RENDER_SCALE_PCT == 50
             #define RENDER_SCALE_M 0.50
         #elif RENDER_SCALE_PCT == 58
@@ -601,10 +602,13 @@
         // two options can't be hidden while Render Scale is on; their descriptions say Render Scale sets them.
         #define TAA_JITTER_M 3
         #define TAA_SMOOTHING_M 3
+        // Compensate for the coarser derivatives of the scaled render when choosing material texture mips.
+        #define texture2DMaterial(sampler, uv) texture2D(sampler, uv, log2(RENDER_SCALE_M))
     #else
         #define RENDER_SCALE_M 1.0
         #define TAA_JITTER_M TAA_JITTER
         #define TAA_SMOOTHING_M TAA_SMOOTHING
+        #define texture2DMaterial(sampler, uv) texture2D(sampler, uv)
     #endif
     // Constant at 1.0, so everything below folds away exactly when Render Scale is off
     #define scaledViewSize (RENDER_SCALE_M < 1.0 ? ivec2(vec2(viewWidth, viewHeight) * RENDER_SCALE_M) : ivec2(viewWidth, viewHeight)) // same rounding as Iris's scaled viewport

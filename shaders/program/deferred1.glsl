@@ -8,7 +8,7 @@
 //////////Fragment Shader//////////Fragment Shader//////////Fragment Shader//////////
 #ifdef FRAGMENT_SHADER
 
-#if defined TAA && defined IS_IRIS && RENDER_SCALE_PCT < 100
+#ifdef TAAU
     #include "/lib/antialiasing/jitter.glsl"
 #endif
 
@@ -156,7 +156,7 @@ float GetLinearDepth(float depth, float far, float near) {
                 vec4 pos = projection * vec4(tracePos.xyz, 1.0);
                 pos = pos / pos.w * 0.5 + 0.5;
 
-                #if defined TAA && defined IS_IRIS && RENDER_SCALE_PCT < 100
+                #ifdef TAAU
                     pos.xy = TAAJitter(pos.xy, 0.5); // Project the ray back into the jittered depth image.
                 #endif
                 if (pos.x < 0.0 || pos.x > 1.0 || pos.y < 0.0 || pos.y > 1.0) break;
@@ -238,7 +238,7 @@ void main() {
     float z0 = texelFetch(depthtex0, texelCoord, 0).r;
 
     vec4 screenPos = vec4(texCoord, z0, 1.0);
-    #if defined TAA && defined IS_IRIS && RENDER_SCALE_PCT < 100
+    #ifdef TAAU
         screenPos.xy = TAAJitter(screenPos.xy, -0.5);
     #endif
     vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);

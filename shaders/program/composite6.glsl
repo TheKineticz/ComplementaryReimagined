@@ -28,7 +28,9 @@ float GetLinearDepth(float depth) {
     #include "/lib/antialiasing/jitter.glsl"
     #include "/lib/antialiasing/taa.glsl"
 #endif
-#include "/lib/antialiasing/taau.glsl"
+#ifdef TAAU
+    #include "/lib/antialiasing/taau.glsl"
+#endif
 
 //Program//
 void main() {
@@ -36,20 +38,16 @@ void main() {
     vec3 temp = vec3(0.0);
     float tempAlpha = 1.0;
 
-    if (RENDER_SCALE_M < 1.0) { // Upscale the scaled render to the full screen (lib/antialiasing/taau.glsl)
-        #ifdef TAA
-            DoTAAU(color, temp, tempAlpha);
-        #else
-            color = GetBilinearUpscale(GetScaledInputPos());
-        #endif
-    } else {
+    #ifdef TAAU
+        DoTAAU(color, temp, tempAlpha);
+    #else
         color = texelFetch(colortex3, texelCoord, 0).rgb;
 
         #ifdef TAA
             float z1 = texelFetch(depthtex1, texelCoord, 0).r;
             DoTAA(color, temp, z1);
         #endif
-    }
+    #endif
 
     /* DRAWBUFFERS:32 */
     gl_FragData[0] = vec4(color, 1.0);
