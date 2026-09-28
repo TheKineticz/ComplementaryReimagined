@@ -186,6 +186,9 @@ void main() {
     /* DRAWBUFFERS:063 */
     gl_FragData[0] = color;
     gl_FragData[1] = vec4(0.0, materialMask, 0.0, 1.0);
+    #ifdef TAA
+        if (RENDER_SCALE_M < 1.0) gl_FragData[1].a = 1.0 - exp2(-0.05 * max(lViewPos - 8.0, 0.0));
+    #endif
     gl_FragData[2] = vec4(1.0 - translucentMult, 1.0);
 
     #if WATER_REFLECT_QUALITY > 0 && WORLD_SPACE_REFLECTIONS > 0

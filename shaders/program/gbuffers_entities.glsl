@@ -263,6 +263,9 @@ void main() {
     gl_FragData[0] = color;
     gl_FragData[1] = vec4(1.0 - translucentMult, 1.0);
     gl_FragData[2] = vec4(smoothnessD, materialMask, skyLightFactor, 1.0);
+    #if defined TAA && defined GBUFFERS_ENTITIES_TRANSLUCENT
+        if (RENDER_SCALE_M < 1.0) gl_FragData[2].a = 1.0 - exp2(-0.05 * max(lViewPos - 8.0, 0.0));
+    #endif
 
     #if defined GBUFFERS_ENTITIES_TRANSLUCENT && DETAIL_QUALITY > 0
         #if BLOCK_REFLECT_QUALITY >= 2 && RP_MODE >= 1 || WORLD_SPACE_REFLECTIONS > 0

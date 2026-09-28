@@ -96,7 +96,8 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     tempAlpha = 1.0;
 
     float z1 = texelFetch(depthtex1, inputTexel, 0).r;
-    int materialMask = int(texelFetch(colortex6, inputTexel, 0).g * 255.1);
+    vec4 materialData = texelFetch(colortex6, inputTexel, 0);
+    int materialMask = int(materialData.g * 255.1);
 
     vec4 screenPos1 = vec4(texCoord, z1, 1.0);
     vec4 viewPos1 = gbufferProjectionInverse * (screenPos1 * 2.0 - 1.0);
@@ -187,6 +188,9 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     // just uncovered behind one is treated like the object for those frames, so a close one doesn't leave a trail.
     float historyAlpha = texelFetch(colortex2, clamp(ivec2(prvCoord * view), ivec2(0), ivec2(view) - 1), 0).a;
     float entityFactor = entity ? 1.0 - exp2(-0.05 * max(lViewPos1 - 8.0, 0.0)) : 0.0;
+    // Translucent geometry may never write depthtex1. Its own distance must cap the background's blend.
+    // Opaque entities keep alpha 1 and retain their existing distance-dependent stability.
+    entityFactor = min(entityFactor, materialData.a);
     float distanceFactor = dynamic ? entityFactor : historyAlpha;
     tempAlpha = dynamic ? entityFactor : min(historyAlpha + 0.25, 1.0);
     dynamic = dynamic || historyAlpha < 1.0;
