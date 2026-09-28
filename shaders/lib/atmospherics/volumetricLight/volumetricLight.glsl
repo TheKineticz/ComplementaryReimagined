@@ -57,8 +57,12 @@ vec4 GetVolumetricLight(inout float vlFactor, vec3 translucentMult, float lViewP
     #endif
 
     #if DETAIL_QUALITY > 0
-        float entityLinearDepth = texture2D(colortex13, ToBufferUV(texCoord)).r;
-              entityLinearDepth = entityLinearDepth == 0.0 ? 1000000.0 : pow2(entityLinearDepth) * far;
+        #ifndef VOXY_PATCH
+            float entityLinearDepth = texture2D(colortex13, ToBufferUV(texCoord)).r;
+                  entityLinearDepth = entityLinearDepth == 0.0 ? 1000000.0 : pow2(entityLinearDepth) * far;
+        #else
+            float entityLinearDepth = 1000000.0; // Voxy programs have no texCoord (fixes End Voxy water not compiling)
+        #endif
     #endif
 
     if (vlMult < 0.0001) return vec4(0.0);
