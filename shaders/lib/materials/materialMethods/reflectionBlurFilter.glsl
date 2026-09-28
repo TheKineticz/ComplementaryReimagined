@@ -1,3 +1,5 @@
+#include "/lib/util/renderScaleSampling.glsl"
+
 vec4 sampleBlurFilteredReflection(vec4 centerCol, vec3 nViewPos, float dither, float z0) {
     vec4 texture4 = texture2D(colortex4, ToBufferUV(texCoord));
 
@@ -26,7 +28,7 @@ vec4 sampleBlurFilteredReflection(vec4 centerCol, vec3 nViewPos, float dither, f
     for (int dy = -k; dy <= k; dy++) {
         for (int dx = -k; dx <= k; dx++) {
             vec2 offset = vec2(float(dx), float(dy)) * texelSize;
-            vec2 sampleCoord = ToBufferUV(texCoord + offset);
+            vec2 sampleCoord = ScaledBufferUV(colortex7, texCoord + offset);
             vec4 sampleCol = texture2D(colortex7, sampleCoord);
 
             // Skip step if normals are too different
@@ -35,7 +37,7 @@ vec4 sampleBlurFilteredReflection(vec4 centerCol, vec3 nViewPos, float dither, f
 
             // Skip if depth is too different (costs performance for a tiny fix)
             #ifdef REFLECTION_BLUR_DEPTH_CHECK
-                if (abs(GetLinearDepth(texture2D(depthtex0, sampleCoord).r) - linearZ0) > blurDepthCheckThreshold) continue;
+                if (abs(GetLinearDepth(texture2D(depthtex0, ToBufferUV(texCoord + offset)).r) - linearZ0) > blurDepthCheckThreshold) continue;
             #endif
 
             // Spatial weight (gaussian)

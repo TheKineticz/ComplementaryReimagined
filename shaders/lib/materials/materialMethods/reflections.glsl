@@ -1,4 +1,5 @@
 #include "/lib/misc/reprojection.glsl"
+#include "/lib/util/renderScaleSampling.glsl"
 
 #ifdef OVERWORLD
     #include "/lib/atmospherics/sky.glsl"

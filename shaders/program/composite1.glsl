@@ -141,7 +141,7 @@ void main() {
 
     #if defined PBR_REFLECTIONS || WATER_REFLECT_QUALITY > 0 && WORLD_SPACE_REFLECTIONS_INTERNAL > 0
         if (z0 < 1.0) {
-            vec4 compositeReflection = texture2D(colortex7, ToBufferUV(texCoord));
+            vec4 compositeReflection = texture2D(colortex7, ScaledBufferUV(colortex7, texCoord));
 
             // Partial fix for half resolution WSR-only reflections having a lot of sky gaps
             #if WORLD_SPACE_REF_MODE == 1
@@ -154,7 +154,7 @@ void main() {
                     );
 
                     for (int i = 0; i < 4; i++) {
-                        vec4 compositeRefSample = texture2D(colortex7, ToBufferUV(texCoord + refOffsets[i] * 1.5 / view));
+                        vec4 compositeRefSample = texture2D(colortex7, ScaledBufferUV(colortex7, texCoord + refOffsets[i] * 1.5 / view));
                         if (compositeRefSample.a > compositeReflection.a * 1.01) compositeReflection = compositeRefSample;
                     }
                 }

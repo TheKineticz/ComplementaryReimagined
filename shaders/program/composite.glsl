@@ -192,14 +192,14 @@ void main() {
 
                         float linearZ1 = GetLinearDepth(z1);
                         vec2 pixelMovement = view * (prevPos.xy - texCoord);
-                        vec3 prevNormalM = mat3(gbufferModelView) * texture2D(colortex1, ToBufferUV(virtualPrevRefPos.xy)).rgb;
+                        vec3 prevNormalM = mat3(gbufferModelView) * texture2D(colortex1, ScaledBufferUV(colortex1, virtualPrevRefPos.xy)).rgb;
 
                         vec4 prevRefCurrentPosHeuristic = playerVirtualRefPos;
                         prevRefCurrentPosHeuristic.xyz += normalize(previousCameraPosition - cameraPosition - playerVirtualRefPos.xyz) * refDist;
                         prevRefCurrentPosHeuristic = gbufferProjection * (gbufferModelView * prevRefCurrentPosHeuristic);
                         prevRefCurrentPosHeuristic.xyz = 0.5 * prevRefCurrentPosHeuristic.xyz / prevRefCurrentPosHeuristic.w + 0.5;
 
-                        vec4 prevRef = texture2D(colortex7, ToBufferUV(virtualPrevRefPos.xy));
+                        vec4 prevRef = texture2D(colortex7, ScaledBufferUV(colortex7, virtualPrevRefPos.xy));
                         float prevValid = exp(
                             - 0.03 * length(view * (virtualPrevRefPos.xy - texCoord))
                             - min(0.75, 10.0 * sqrt(length(cameraPosition - previousCameraPosition)))
