@@ -28,9 +28,9 @@
 #endif
 
 #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
-    //Catmull-Rom sampling from Filmic SMAA presentation
-    vec3 textureCatmullRom(sampler2D colortex, vec2 texcoord, vec2 view) {
-        vec2 position = texcoord * view;
+    // Catmull-Rom sampling from Filmic SMAA presentation. position is in texels of the full-size buffer.
+    // Scaled current-frame reads clamp taps to the rendered area; history keeps its existing sampling coordinates.
+    vec3 textureCatmullRom(sampler2D colortex, vec2 position, vec2 view, vec2 renderedSize, bool clampToViewport) {
         vec2 centerPosition = floor(position - 0.5) + 0.5;
         vec2 f = position - centerPosition;
         vec2 f2 = f * f;
@@ -43,16 +43,27 @@
         vec2 w3 =         c  * f3 -                c * f2;
 
         vec2 w12 = w1 + w2;
-        vec2 tc12 = (centerPosition + w2 / w12) / view;
-
-        vec2 tc0 = (centerPosition - 1.0) / view;
-        vec2 tc3 = (centerPosition + 2.0) / view;
+        vec2 tc12 = centerPosition + w2 / w12;
+        vec2 tc0 = centerPosition - 1.0;
+        vec2 tc3 = centerPosition + 2.0;
+        if (clampToViewport) {
+            tc12 = clamp(tc12, vec2(0.5), renderedSize - 0.5);
+            tc0 = clamp(tc0, vec2(0.5), renderedSize - 0.5);
+            tc3 = clamp(tc3, vec2(0.5), renderedSize - 0.5);
+        }
+        tc12 /= view;
+        tc0 /= view;
+        tc3 /= view;
         vec4 color = vec4(texture2DLod(colortex, vec2(tc12.x, tc0.y ), 0).rgb, 1.0) * (w12.x * w0.y ) +
                     vec4(texture2DLod(colortex, vec2(tc0.x,  tc12.y), 0).rgb, 1.0) * (w0.x  * w12.y) +
                     vec4(texture2DLod(colortex, vec2(tc12.x, tc12.y), 0).rgb, 1.0) * (w12.x * w12.y) +
                     vec4(texture2DLod(colortex, vec2(tc3.x,  tc12.y), 0).rgb, 1.0) * (w3.x  * w12.y) +
                     vec4(texture2DLod(colortex, vec2(tc12.x, tc3.y ), 0).rgb, 1.0) * (w12.x * w3.y );
         return color.rgb / color.a;
+    }
+
+    vec3 textureCatmullRom(sampler2D colortex, vec2 texcoord, vec2 view) {
+        return textureCatmullRom(colortex, texcoord * view, view, view, false);
     }
 #endif
 
