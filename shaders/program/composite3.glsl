@@ -104,12 +104,13 @@
             for (int i = 0; i < 18; i++) {
                 vec2 offset = dofOffsets[i] * coc * 0.0085 * dofScale;
                 float lod = log2(viewHeight * aspectRatio * coc * 0.75 / 320.0);
+                lod += log2(RENDER_SCALE_M); // Render Scale: same blur in screen terms
                 #ifndef WB_CHROMATIC
-                    dof += texture2DLod(colortex0, texCoord + offset, lod).rgb;
+                    dof += texture2DLod(colortex0, ToBufferUV(texCoord + offset), lod).rgb;
                 #else
-                    dof += vec3(texture2DLod(colortex0, texCoord + offset + aberration, lod).r,
-                                texture2DLod(colortex0, texCoord + offset             , lod).g,
-                                texture2DLod(colortex0, texCoord + offset - aberration, lod).b);
+                    dof += vec3(texture2DLod(colortex0, ToBufferUV(texCoord + offset + aberration), lod).r,
+                                texture2DLod(colortex0, ToBufferUV(texCoord + offset             ), lod).g,
+                                texture2DLod(colortex0, ToBufferUV(texCoord + offset - aberration), lod).b);
                 #endif
             }
             dof /= 18.0;

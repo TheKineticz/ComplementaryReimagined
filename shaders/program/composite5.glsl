@@ -159,10 +159,10 @@ void DoBSLColorSaturation(inout vec3 color) {
 
 //Program//
 void main() {
-    vec3 color = texture2D(colortex0, texCoord).rgb;
+    vec3 color = texture2D(colortex0, ToBufferUV(texCoord)).rgb;
 
     #if defined BLOOM_FOG || LENSFLARE_MODE > 0 && defined OVERWORLD
-        float z0 = texture2D(depthtex0, texCoord).r;
+        float z0 = texture2D(depthtex0, ToBufferUV(texCoord)).r;
         vec4 screenPos = vec4(texCoord, z0, 1.0);
         vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
         viewPos /= viewPos.w;
@@ -185,7 +185,7 @@ void main() {
         float lViewPos = 0.0;
     #endif
 
-    float dither = texture2DLod(noisetex, texCoord * view / 128.0, 0.0).b;
+    float dither = texture2DLod(noisetex, texCoord * scaledViewSizeF / 128.0, 0.0).b;
     #ifdef TAA
         dither = fract(dither + goldenRatio * mod(float(frameCounter), 3600.0));
     #endif

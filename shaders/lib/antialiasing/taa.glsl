@@ -1,4 +1,4 @@
-#if TAA_SMOOTHING == 2
+#if TAA_SMOOTHING_M == 2
     float blendMinimum = 0.3;
     float blendVariable = 0.3;
     float blendConstant = 0.6;
@@ -7,7 +7,7 @@
     float extraEdgeMult = 2.0;
 
     float farEdgeDist = 128.0;
-#elif TAA_SMOOTHING == 3
+#elif TAA_SMOOTHING_M == 3
     float blendMinimum = 0.35;
     float blendVariable = 0.2;
     float blendConstant = 0.7;
@@ -16,7 +16,7 @@
     float extraEdgeMult = 3.0;
 
     float farEdgeDist = 112.0;
-#elif TAA_SMOOTHING == 4
+#elif TAA_SMOOTHING_M == 4
     float blendMinimum = 0.5;
     float blendVariable = 0.15;
     float blendConstant = 0.75;

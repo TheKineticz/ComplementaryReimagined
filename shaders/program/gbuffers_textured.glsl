@@ -54,15 +54,24 @@ float shadowTime = shadowTimeVar2 * shadowTimeVar2;
     #include "/lib/misc/colorCodedPrograms.glsl"
 #endif
 
+#ifdef TAA
+    #include "/lib/antialiasing/jitter.glsl"
+#endif
+
 //Program//
 void main() {
+    RenderScaleSkipOutside();
+
     vec4 color = texture2D(tex, texCoord);
     vec4 colorP = color;
     color *= glColor;
 
     if (color.a < 0.01) discard;
 
-    vec3 screenPos = vec3(gl_FragCoord.xy / vec2(viewWidth, viewHeight), gl_FragCoord.z);
+    vec3 screenPos = vec3(gl_FragCoord.xy / scaledViewSizeF, gl_FragCoord.z);
+    #ifdef TAA
+        if (RENDER_SCALE_M < 1.0) screenPos.xy = TAAJitter(screenPos.xy, -0.5); // undo the vertex shader's jitter
+    #endif
     vec3 viewPos = ScreenToView(screenPos);
     float lViewPos = length(viewPos);
     vec3 playerPos = ViewToPlayer(viewPos);
@@ -206,6 +215,10 @@ flat out vec4 glColor;
 
 //Includes//
 
+#ifdef TAA
+    #include "/lib/antialiasing/jitter.glsl"
+#endif
+
 //Program//
 void main() {
     gl_Position = ftransform();
@@ -224,6 +237,13 @@ void main() {
     #ifdef FLICKERING_FIX
         gl_Position.z -= 0.000002;
     #endif
+
+    #ifdef TAA
+        // Render Scale: every gbuffers program is jittered, so the upscaler (taau.glsl) can rebuild it
+        if (RENDER_SCALE_M < 1.0) gl_Position.xy = TAAJitter(gl_Position.xy, gl_Position.w);
+    #endif
+
+    DoRenderScale(gl_Position); // Render Scale, see common.glsl
 }
 
 #endif

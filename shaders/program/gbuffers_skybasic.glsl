@@ -56,8 +56,14 @@ float shadowTime = shadowTimeVar2 * shadowTimeVar2;
     #include "/lib/util/spaceConversion.glsl"
 #endif
 
+#ifdef TAA
+    #include "/lib/antialiasing/jitter.glsl"
+#endif
+
 //Program//
 void main() {
+    RenderScaleSkipOutside();
+
     vec4 color = vec4(glColor.rgb, 1.0);
 
     #ifdef OVERWORLD
@@ -71,7 +77,10 @@ void main() {
             }
         #endif
 
-        vec4 screenPos = vec4(gl_FragCoord.xy / vec2(viewWidth, viewHeight), gl_FragCoord.z, 1.0);
+        vec4 screenPos = vec4(gl_FragCoord.xy / scaledViewSizeF, gl_FragCoord.z, 1.0);
+        #ifdef TAA
+            if (RENDER_SCALE_M < 1.0) screenPos.xy = TAAJitter(screenPos.xy, -0.5); // undo the vertex shader's jitter
+        #endif
         vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
         viewPos /= viewPos.w;
         vec3 nViewPos = normalize(viewPos.xyz);
@@ -196,6 +205,10 @@ flat out vec4 glColor;
 
 //Includes//
 
+#ifdef TAA
+    #include "/lib/antialiasing/jitter.glsl"
+#endif
+
 //Program//
 void main() {
     gl_Position = ftransform();
@@ -213,6 +226,13 @@ void main() {
             vanillaStars = float(glColor.r == glColor.g && glColor.g == glColor.b && glColor.r > 0.0 && glColor.r < 0.51);
         #endif
     #endif
+
+    #ifdef TAA
+        // Render Scale: every gbuffers program is jittered, so the upscaler (taau.glsl) can rebuild it
+        if (RENDER_SCALE_M < 1.0) gl_Position.xy = TAAJitter(gl_Position.xy, gl_Position.w);
+    #endif
+
+    DoRenderScale(gl_Position); // Render Scale, see common.glsl
 }
 
 #endif

@@ -48,6 +48,8 @@ float shadowTime = shadowTimeVar2 * shadowTimeVar2;
 
 //Program//
 void main() {
+    RenderScaleSkipOutside();
+
     vec4 color = texture2D(tex, texCoord);
     vec3 colorP = color.rgb;
     color *= glColor;
@@ -111,6 +113,10 @@ out vec4 glColor;
 
 //Includes//
 
+#ifdef TAA
+    #include "/lib/antialiasing/jitter.glsl"
+#endif
+
 //Program//
 void main() {
     gl_Position = ftransform();
@@ -133,6 +139,13 @@ void main() {
     #if defined FLICKERING_FIX && SHADOW_QUALITY == -1
         if (glColor.a < 0.5) gl_Position.z += 0.0005;
     #endif
+
+    #ifdef TAA
+        // Render Scale: every gbuffers program is jittered, so the upscaler (taau.glsl) can rebuild it
+        if (RENDER_SCALE_M < 1.0) gl_Position.xy = TAAJitter(gl_Position.xy, gl_Position.w);
+    #endif
+
+    DoRenderScale(gl_Position); // Render Scale, see common.glsl
 }
 
 #endif

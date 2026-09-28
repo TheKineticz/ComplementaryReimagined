@@ -38,6 +38,8 @@ float sunVisibility2 = sunVisibility * sunVisibility;
 
 //Program//
 void main() {
+    RenderScaleSkipOutside();
+
     vec4 color = texture2D(tex, texCoord);
 
     #ifdef IMPROVED_RAIN
@@ -108,6 +110,10 @@ flat out vec4 glColor;
 
 //Includes//
 
+#ifdef TAA
+    #include "/lib/antialiasing/jitter.glsl"
+#endif
+
 //Program//
 void main() {
     vec4 position = gbufferModelViewInverse * gl_ModelViewMatrix * gl_Vertex;
@@ -131,6 +137,13 @@ void main() {
 
     upVec = normalize(gbufferModelView[1].xyz);
     sunVec = GetSunVector();
+
+    #ifdef TAA
+        // Render Scale: every gbuffers program is jittered, so the upscaler (taau.glsl) can rebuild it
+        if (RENDER_SCALE_M < 1.0) gl_Position.xy = TAAJitter(gl_Position.xy, gl_Position.w);
+    #endif
+
+    DoRenderScale(gl_Position); // Render Scale, see common.glsl
 }
 
 #endif
