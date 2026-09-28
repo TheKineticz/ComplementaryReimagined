@@ -4,11 +4,12 @@
 // output pixel takes the scaled render's sample nearest to it, weighted by how close that sample landed to the
 // pixel's center, and accumulates it into the full resolution history. With the TAA jitter walking the samples
 // through each pixel, a still image converges to full resolution detail. Where there is no usable history
-// (first frame, off-screen, invalid), a Catmull-Rom upscale of the current frame is used instead.
+// (first frame, off-screen, invalid), a filtered upscale of the current frame is used instead. Catmull-Rom Sampling
+// selects Catmull-Rom or bilinear filtering for both this reconstruction and the history reads.
 //
 // Entities, particles, lightning and the hand move by themselves and have no motion vectors. They are jittered and
 // accumulated too, but with a shorter history, clipped harder and cut the more the clip corrects it, and their current
-// frame comes from a Catmull-Rom filter rather than the nearest sample alone. Beyond 8 blocks they blend towards the
+// frame comes from the selected filter rather than the nearest sample alone. Beyond 8 blocks they blend towards the
 // world's treatment with distance, as Photon treats everything: a steady image for some blur in motion.
 
 vec3 RGBToYCoCg(vec3 c) {
@@ -24,31 +25,35 @@ vec2 GetScaledInputPos() {
     return texCoord * scaledViewSizeF + jitterPx;
 }
 
-// Catmull-Rom over the scaled image (as textureCatmullRom in taa.glsl), for pixels upscaled from the current frame
-// alone. Clamp the taps to rendered texel centers, preserving the sample position at the screen edges.
-vec3 GetSharpUpscale(vec2 inputPos) {
+// Reconstruct the current frame using the same sampling option as history. Clamp to rendered texel centers so
+// neither filter reads the unused part of the targets, preserving the sample position at the screen edges.
+vec3 GetCurrentUpscale(vec2 inputPos) {
     vec2 position = clamp(inputPos, vec2(0.5), scaledViewSizeF - 0.5);
-    vec2 centerPosition = floor(position - 0.5) + 0.5;
-    vec2 f = position - centerPosition;
-    vec2 f2 = f * f;
-    vec2 f3 = f * f2;
+    #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
+        vec2 centerPosition = floor(position - 0.5) + 0.5;
+        vec2 f = position - centerPosition;
+        vec2 f2 = f * f;
+        vec2 f3 = f * f2;
 
-    float c = 0.7;
-    vec2 w0 =        -c  * f3 +  2.0 * c         * f2 - c * f;
-    vec2 w1 =  (2.0 - c) * f3 - (3.0 - c)        * f2         + 1.0;
-    vec2 w2 = -(2.0 - c) * f3 + (3.0 -  2.0 * c) * f2 + c * f;
-    vec2 w3 =         c  * f3 -                c * f2;
+        float c = 0.7;
+        vec2 w0 =        -c  * f3 +  2.0 * c         * f2 - c * f;
+        vec2 w1 =  (2.0 - c) * f3 - (3.0 - c)        * f2         + 1.0;
+        vec2 w2 = -(2.0 - c) * f3 + (3.0 -  2.0 * c) * f2 + c * f;
+        vec2 w3 =         c  * f3 -                c * f2;
 
-    vec2 w12 = w1 + w2;
-    vec2 tc12 = clamp(centerPosition + w2 / w12, vec2(0.5), scaledViewSizeF - 0.5) / view;
-    vec2 tc0 = clamp(centerPosition - 1.0, vec2(0.5), scaledViewSizeF - 0.5) / view;
-    vec2 tc3 = clamp(centerPosition + 2.0, vec2(0.5), scaledViewSizeF - 0.5) / view;
-    vec4 color = vec4(texture2DLod(colortex3, vec2(tc12.x, tc0.y ), 0).rgb, 1.0) * (w12.x * w0.y ) +
-                 vec4(texture2DLod(colortex3, vec2(tc0.x,  tc12.y), 0).rgb, 1.0) * (w0.x  * w12.y) +
-                 vec4(texture2DLod(colortex3, vec2(tc12.x, tc12.y), 0).rgb, 1.0) * (w12.x * w12.y) +
-                 vec4(texture2DLod(colortex3, vec2(tc3.x,  tc12.y), 0).rgb, 1.0) * (w3.x  * w12.y) +
-                 vec4(texture2DLod(colortex3, vec2(tc12.x, tc3.y ), 0).rgb, 1.0) * (w12.x * w3.y );
-    return color.rgb / color.a;
+        vec2 w12 = w1 + w2;
+        vec2 tc12 = clamp(centerPosition + w2 / w12, vec2(0.5), scaledViewSizeF - 0.5) / view;
+        vec2 tc0 = clamp(centerPosition - 1.0, vec2(0.5), scaledViewSizeF - 0.5) / view;
+        vec2 tc3 = clamp(centerPosition + 2.0, vec2(0.5), scaledViewSizeF - 0.5) / view;
+        vec4 color = vec4(texture2DLod(colortex3, vec2(tc12.x, tc0.y ), 0).rgb, 1.0) * (w12.x * w0.y ) +
+                     vec4(texture2DLod(colortex3, vec2(tc0.x,  tc12.y), 0).rgb, 1.0) * (w0.x  * w12.y) +
+                     vec4(texture2DLod(colortex3, vec2(tc12.x, tc12.y), 0).rgb, 1.0) * (w12.x * w12.y) +
+                     vec4(texture2DLod(colortex3, vec2(tc3.x,  tc12.y), 0).rgb, 1.0) * (w3.x  * w12.y) +
+                     vec4(texture2DLod(colortex3, vec2(tc12.x, tc3.y ), 0).rgb, 1.0) * (w12.x * w3.y );
+        return color.rgb / color.a;
+    #else
+        return texture2DLod(colortex3, position / view, 0.0).rgb;
+    #endif
 }
 
 // The native TAA's depth-edge and colour bounds, sampled at a clamped scaled-image texel.
@@ -141,7 +146,7 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     #endif
 
     if (tempColor == vec3(0.0) || any(isnan(tempColor))) { // Fixes the first frame and nans
-        color = GetSharpUpscale(inputPos);
+        color = GetCurrentUpscale(inputPos);
         temp = color;
         return;
     }
@@ -223,15 +228,15 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
 
     blendFactor *= max(exp(-velocityFactor) * blendVariable + blendConstant - min(length(cameraPosition - previousCameraPosition), 0.05) * edge, blendMinimum);
 
-    // Off-screen history (blendFactor 0) falls back to the sharp current frame.
+    // Off-screen history (blendFactor 0) falls back to the reconstructed current frame.
     if (blendFactor == 0.0) {
-        color = GetSharpUpscale(inputPos);
+        color = GetCurrentUpscale(inputPos);
     } else if (dynamic) {
         // A shorter history, and less of it the more the clip above had to correct it. The current frame takes its
-        // full share, from the nearest sample where that covers this pixel well and a sharp upscale elsewhere.
+        // full share, from the nearest sample where that covers this pixel well and a filtered upscale elsewhere.
         float worldBlendFactor = blendFactor;
         blendFactor = min(blendFactor, 0.75) * exp(-4.0 * dynamicClip);
-        vec3 current = mix(GetSharpUpscale(inputPos), currentSample, sampleWeight);
+        vec3 current = mix(GetCurrentUpscale(inputPos), currentSample, sampleWeight);
         color = mix(tempColor, current, 1.0 - blendFactor);
         // Towards the world's result with distance (see entityFactor)
         vec3 worldColor = mix(tempColorWorld, currentSample, (1.0 - worldBlendFactor) * sampleWeight);
