@@ -207,7 +207,7 @@ vec4 GetReflection(inout vec3 normalM, vec3 viewPos, vec3 nViewPos, vec3 playerP
                         if (RENDER_SCALE_M < 1.0) {
                             // Render Scale: same blur in screen terms, and keep the mip footprint inside the rendered area
                             lod = max(lod + log2(RENDER_SCALE_M), 0.0);
-                            refPosBuffer = min(ToBufferUV(refPos.xy), renderScaleV - exp2(lod) / vec2(viewWidth, viewHeight));
+                            refPosBuffer = ScaledBufferLodUV(colortex5, refPos.xy, lod);
                         }
                         reflection.rgb = texture2DLod(colortex5, refPosBuffer, lod).rgb;
                         reflection.rgb = pow2(reflection.rgb * 2.0);
