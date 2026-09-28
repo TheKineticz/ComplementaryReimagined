@@ -88,7 +88,8 @@ void main() {
     vec3 blur = vec3(0.0);
 
     #if BLOOM_ENABLED == 1
-        vec2 scaledCoord = texCoord * max(vec2(viewWidth, viewHeight) / vec2(1920.0, 1080.0), vec2(1.0));
+        // Bloom tiles use full-screen coordinates even when motion blur scales this pass's viewport.
+        vec2 scaledCoord = (RENDER_SCALE_M < 1.0 ? gl_FragCoord.xy / view : texCoord) * max(vec2(viewWidth, viewHeight) / vec2(1920.0, 1080.0), vec2(1.0));
 
         #if defined OVERWORLD || defined END
             blur += BloomTile(2.0, vec2(0.0      , 0.0   ), scaledCoord);
