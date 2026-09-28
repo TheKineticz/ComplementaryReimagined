@@ -170,11 +170,20 @@ void FXAA311(inout vec3 color) {
                 FXAA_TAA_INTERACTION * 0.1
             );
 
-            float z0 = texelFetch(depthtex0, texelCoord, 0).r;
-            float z1 = texelFetch(depthtex1, texelCoord, 0).r;
+            ivec2 depthCoord = texelCoord;
+            if (RENDER_SCALE_M < 1.0) {
+                vec2 depthUV = texCoord;
+                #ifdef TAA
+                    depthUV = TAAJitter(depthUV, 0.5);
+                #endif
+                depthCoord = clamp(ivec2(depthUV * scaledViewSizeF), ivec2(0), scaledViewSize - 1);
+            }
+            float z0 = texelFetch(depthtex0, depthCoord, 0).r;
+            float z1 = texelFetch(depthtex1, depthCoord, 0).r;
             bool edge = false;
             for (int i = 0; i < 8; i++) {
-                ivec2 texelCoordM = texelCoord + neighbourhoodOffsets[i];
+                ivec2 texelCoordM = depthCoord + neighbourhoodOffsets[i];
+                if (RENDER_SCALE_M < 1.0) texelCoordM = clamp(texelCoordM, ivec2(0), scaledViewSize - 1);
 
                 float z0Check = texelFetch(depthtex0, texelCoordM, 0).r;
                 float z1Check = texelFetch(depthtex1, texelCoordM, 0).r;

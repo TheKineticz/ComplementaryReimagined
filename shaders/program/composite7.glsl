@@ -21,6 +21,9 @@ float GetLinearDepth(float depth) {
 
 //Includes//
 #if FXAA_DEFINE == 1 && FXAA_STRENGTH > 1
+    #ifdef TAA
+        #include "/lib/antialiasing/jitter.glsl"
+    #endif
     #include "/lib/antialiasing/fxaa.glsl"
 #endif
 
