@@ -162,21 +162,8 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     float edge = 0.0;
     vec3 minclr = currentSample, maxclr = currentSample;
     ivec2 maxTexel = scaledViewSize - 1;
-    if (cameraPosition != previousCameraPosition) {
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[0], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[1], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[2], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[3], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[4], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[5], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[6], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[7], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-    } else {
-        // DoTAAU() multiplies edge by how far the camera moved, so the depth checks are not needed while it stands still
-        for (int i = 0; i < 8; i++) {
-            vec3 clr = texelFetch(colortex3, clamp(inputTexel + neighbourhoodOffsets[i], ivec2(0), maxTexel), 0).rgb;
-            minclr = min(minclr, clr); maxclr = max(maxclr, clr);
-        }
+    for (int i = 0; i < 8; i++) {
+        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[i], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
     }
     tempColor = ClipAABB(tempColor, minclr, maxclr);
     vec3 tempColorWorld = tempColor; // before the moving-object clip below
