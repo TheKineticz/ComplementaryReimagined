@@ -57,7 +57,7 @@ vec3 GetCurrentUpscale(vec2 inputPos) {
 }
 
 // The native TAA's depth-edge and colour bounds, sampled at a clamped scaled-image texel.
-void TAAUNeighbourhoodSample(ivec2 coord, float z0, float z1, inout float edge, inout vec3 minclr, inout vec3 maxclr) {
+vec3 TAAUNeighbourhoodSample(ivec2 coord, float z0, float z1, inout float edge, inout vec3 minclr, inout vec3 maxclr) {
     float z0CheckLinear = GetLinearDepth(texelFetch(depthtex0, coord, 0).r);
     float z1CheckLinear = GetLinearDepth(texelFetch(depthtex1, coord, 0).r);
     float z0Linear = GetLinearDepth(z0);
@@ -73,6 +73,7 @@ void TAAUNeighbourhoodSample(ivec2 coord, float z0, float z1, inout float edge, 
 
     vec3 clr = texelFetch(colortex3, coord, 0).rgb;
     minclr = min(minclr, clr); maxclr = max(maxclr, clr);
+    return clr;
 }
 
 void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
@@ -151,16 +152,6 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
         return;
     }
 
-    // Neighbourhood clamping against the scaled render's samples around this pixel (as in taa.glsl)
-    float edge = 0.0;
-    vec3 minclr = currentSample, maxclr = currentSample;
-    ivec2 maxTexel = scaledViewSize - 1;
-    for (int i = 0; i < 8; i++) {
-        TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[i], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-    }
-    tempColor = ClipAABB(tempColor, minclr, maxclr);
-    vec3 tempColorWorld = tempColor; // before the moving-object clip below
-
     // Far away a moving object covers few pixels, and the jitter changes its neighbourhood completely every frame:
     // the hard clip below would keep rejecting its history and it would shimmer. Beyond 8 blocks it takes the
     // world's treatment instead, more of it with distance (entityFactor).
@@ -175,15 +166,30 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     tempAlpha = dynamic ? entityFactor : min(historyAlpha + 0.25, 1.0);
     dynamic = dynamic || historyAlpha < 1.0;
 
+    // Gather RGB bounds and, for moving objects, YCoCg moments from the same samples.
+    // Depth-edge checks stay unconditional, including while the camera is stationary.
+    float edge = 0.0;
+    vec3 minclr = currentSample, maxclr = currentSample;
+    vec3 m1 = vec3(0.0), m2 = vec3(0.0);
+    if (dynamic) {
+        m1 = RGBToYCoCg(currentSample);
+        m2 = m1 * m1;
+    }
+    ivec2 maxTexel = scaledViewSize - 1;
+    for (int i = 0; i < 8; i++) {
+        vec3 clr = TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[i], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
+        if (dynamic) {
+            vec3 ycocg = RGBToYCoCg(clr);
+            m1 += ycocg; m2 += ycocg * ycocg;
+        }
+    }
+    tempColor = ClipAABB(tempColor, minclr, maxclr);
+    vec3 tempColorWorld = tempColor; // before the moving-object clip below
+
     // Moving objects: clip the history to the neighbourhood's mean +- 1 sigma in YCoCg, noting how far that had to
     // move it
     float dynamicClip = 0.0;
     if (dynamic) {
-        vec3 m1 = RGBToYCoCg(currentSample), m2 = m1 * m1;
-        for (int i = 0; i < 8; i++) {
-            vec3 clr = RGBToYCoCg(texelFetch(colortex3, clamp(inputTexel + neighbourhoodOffsets[i], ivec2(0), maxTexel), 0).rgb);
-            m1 += clr; m2 += clr * clr;
-        }
         m1 /= 9.0;
         vec3 sigma = sqrt(max(m2 / 9.0 - m1 * m1, 0.0));
         vec3 history = RGBToYCoCg(tempColor);
