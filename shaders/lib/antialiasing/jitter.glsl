@@ -12,7 +12,6 @@ vec2 jitterOffsets[8] = vec2[8](
 
 vec2 TAAJitter(vec2 coord, float w) {
     #if TAA_JITTER_M > 0
-        // In pixels of the (possibly scaled) render, so render scale gets the same subpixel coverage
         vec2 offset = jitterOffsets[int(framemod8)] * (w / scaledViewSizeF);
         #if TAA_JITTER_M == 1
             offset *= 0.125;
