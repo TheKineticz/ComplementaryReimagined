@@ -11,7 +11,9 @@
 // relative to how much the jitter alone moves that mean; the parallax between the nearest and farthest surface around
 // the pixel marks where the camera uncovers background; and nearby entities, which have no motion vectors, always
 // count as changing. Unchanged pixels keep a long history that is only loosely checked, so that fine distant detail
-// stays calm; changing ones are clipped hard and keep little of their past.
+// stays calm; changing ones are clipped hard and keep little of their past. Close to the camera, all pixels keep less
+// history: waving foliage, block entities and mobs move without motion vectors, and the closer they are, the further
+// they move on screen, so a long history would smear them.
 //
 // Thin detail, like distant foliage or the sliver of a face seen edge-on, can fall between all of a frame's samples.
 // While the camera is still, the history's own detail around the pixel therefore also counts as expected variation,
@@ -32,6 +34,8 @@ const float taauResampleLoss = 0.1;       // weight lost per axis when history i
 const float taauReactiveFill = 2.0;       // extra weight changing pixels take from the bilinear reconstruction
 const float taauDetailNoise = 2.0;        // history detail counted as expected variation, in its standard deviations
 const float taauDetailMotion = 1.0;       // motion at which that stops, in output pixels per frame
+const float taauNearWeight = 0.25;        // share of the history weight caps kept right at the camera
+const float taauNearDistance = 32.0;      // distance in blocks over which the caps get halfway back to full
 
 vec3 RGBToYCoCg(vec3 c) {
     return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
@@ -139,7 +143,7 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
 
     // How strictly the history is checked, from 0 (unchanged pixel) to 1. The hand (depth below 0.56) moves with the
     // camera, so it keeps its screen position and is always checked strictly.
-    float reactive = 1.0;
+    float reactive = 1.0, weightScale = 1.0;
     vec2 prvCoord = texCoord;
     if (lodChunk || nearest.z >= 0.56) {
         vec2 nearestUV = (nearest.xy + 0.5 - jitterPx) / scaledViewSizeF;
@@ -166,6 +170,12 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
             float texelSize = focalLength / outputPerInput.y * abs(nearView.w / nearView.z) / 16.0; // in scaled pixels
             reactive = max(reactive, clamp(texelSize - 1.0, 0.0, 1.0));
         }
+
+        // Nearby surfaces keep less history, since whatever moves without motion vectors moves further on screen
+        // there. The weight caps start at taauNearWeight of their size at the camera, and the gap to full size halves
+        // every taauNearDistance blocks.
+        float surfaceDistance = length(nearView.xyz / nearView.w); // in blocks
+        weightScale = mix(taauNearWeight, 1.0, 1.0 - exp2(-surfaceDistance / taauNearDistance));
     }
 
     #ifdef CLOUDS_REIMAGINED
@@ -281,7 +291,7 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
 
         // Unchanged pixels may keep a longer history, the more so the closer their mean matches the history
         float stableCap = mix(taauConsistentWeight, taauStableWeight, min(change / taauChangeThreshold, 1.0));
-        maxWeight = mix(stableCap, taauReactiveWeight, reactive);
+        maxWeight = mix(stableCap, taauReactiveWeight, reactive) * weightScale;
         historyWeight = min(historyWeight, maxWeight);
     } else {
         historyWeight = 0.0;
