@@ -280,8 +280,7 @@ void main() {
     #endif
 
     #ifdef TAA
-        // With Render Scale the upscaler rebuilds the hand from jittered samples like the rest of the image
-        // (lib/antialiasing/taau.glsl). At full resolution the hand stays unjittered and out of TAA, as before.
+        // Render Scale: every gbuffers program is jittered, so the upscaler (taau.glsl) can rebuild it
         if (RENDER_SCALE_M < 1.0) gl_Position.xy = TAAJitter(gl_Position.xy, gl_Position.w);
     #endif
 
