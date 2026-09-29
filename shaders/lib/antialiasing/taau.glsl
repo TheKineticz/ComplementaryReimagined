@@ -34,7 +34,7 @@ const float taauResampleLoss = 0.1;       // weight lost per axis when history i
 const float taauReactiveFill = 2.0;       // extra weight changing pixels take from the bilinear reconstruction
 const float taauDetailNoise = 2.0;        // history detail counted as expected variation, in its standard deviations
 const float taauDetailMotion = 1.0;       // motion at which that stops, in output pixels per frame
-const float taauNearWeight = 0.25;        // share of the history weight caps kept right at the camera
+const float taauNearWeight = 0.1;         // share of the history weight caps kept right at the camera
 const float taauNearDistance = 32.0;      // distance in blocks over which the caps get halfway back to full
 
 vec3 RGBToYCoCg(vec3 c) {
