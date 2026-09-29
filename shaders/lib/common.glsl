@@ -597,7 +597,7 @@
         #elif RENDER_SCALE_PCT == 90
             #define RENDER_SCALE_M 0.90
         #endif
-        // The upscaler needs full jitter and chooses its own history weight from distance and sample confidence.
+        // The upscaler needs full jitter, and it weighs its history itself (taau.glsl), so smoothing does not apply.
         // Iris reads menus from the unprocessed shaders.properties, so the two options can't be hidden while
         // Render Scale is on; their descriptions say Render Scale sets them.
         #define TAA_JITTER_M 3

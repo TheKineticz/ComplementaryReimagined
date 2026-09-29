@@ -728,7 +728,7 @@ value.TAA_JITTER.2=Medium
 value.TAA_JITTER.3=Full §e[*]
 
 option.TAA_MOVEMENT_IMPROVEMENT_FILTER=Catmull-Rom Sampling
-option.TAA_MOVEMENT_IMPROVEMENT_FILTER.comment=Reduces Temporal Filter blur with sharper sampling of previous frames. Also controls current-frame reconstruction when Render Scale is active. OFF uses softer bilinear sampling.
+option.TAA_MOVEMENT_IMPROVEMENT_FILTER.comment=Reduces the blurriness of Temporal Filter by using a more advanced sampling method.
 value.TAA_MOVEMENT_IMPROVEMENT_FILTER.0=OFF §c[-]
 value.TAA_MOVEMENT_IMPROVEMENT_FILTER.1=ON
 
