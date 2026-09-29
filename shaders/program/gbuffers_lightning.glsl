@@ -89,13 +89,6 @@ void main() {
     /* DRAWBUFFERS:06 */
     gl_FragData[0] = color;
     gl_FragData[1] = vec4(0.0, materialMask, 1.0, 1.0);
-    #ifdef TAA
-        if (RENDER_SCALE_M < 1.0) {
-            vec2 screenUV = TAAJitter(gl_FragCoord.xy / scaledViewSizeF, -0.5);
-            float lViewPos = length(ScreenToView(vec3(screenUV, gl_FragCoord.z)));
-            gl_FragData[1].a = 1.0 - exp2(-0.05 * max(lViewPos - 8.0, 0.0));
-        }
-    #endif
 
     #if BLOCK_REFLECT_QUALITY >= 2 && RP_MODE >= 1
         /* DRAWBUFFERS:064 */

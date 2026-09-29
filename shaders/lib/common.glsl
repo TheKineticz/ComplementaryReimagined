@@ -597,9 +597,9 @@
         #elif RENDER_SCALE_PCT == 90
             #define RENDER_SCALE_M 0.90
         #endif
-        // The upscaler rebuilds detail from where each frame's samples land, so it needs full jitter, and Medium
-        // smoothing measured best across motion. Iris reads menus from the unprocessed shaders.properties, so the
-        // two options can't be hidden while Render Scale is on; their descriptions say Render Scale sets them.
+        // The upscaler needs full jitter and chooses its own history weight from distance and sample confidence.
+        // Iris reads menus from the unprocessed shaders.properties, so the two options can't be hidden while
+        // Render Scale is on; their descriptions say Render Scale sets them.
         #define TAA_JITTER_M 3
         #define TAA_SMOOTHING_M 3
         // Compensate for the coarser derivatives of the scaled render when choosing material texture mips.

@@ -1,16 +1,7 @@
-// Render Scale upscaling (see RENDER_SCALE_PCT in common.glsl)
-//
-// The frame so far was rendered, jittered, into the bottom-left scaledViewSize pixels of the render targets. Each
-// output pixel takes the scaled render's sample nearest to it, weighted by how close that sample landed to the
-// pixel's center, and accumulates it into the full resolution history. With the TAA jitter walking the samples
-// through each pixel, a still image converges to full resolution detail. Where there is no usable history
-// (first frame, off-screen, invalid), a filtered upscale of the current frame is used instead. Catmull-Rom Sampling
-// selects Catmull-Rom or bilinear filtering for both this reconstruction and the history reads.
-//
-// Entities, particles, lightning and the hand move by themselves and have no motion vectors. They are jittered and
-// accumulated too, but with a shorter history, clipped harder and cut the more the clip corrects it, and their current
-// frame comes from the selected filter rather than the nearest sample alone. Beyond 8 blocks they blend towards the
-// world's treatment with distance, as Photon treats everything: a steady image for some blur in motion.
+// Render Scale upscaling, based on Photon's TAAU by SixthSurge (see Photon-LICENSE.txt).
+// Terrain, entities and the hand share colour clipping and accumulation. Only reprojection depends on the surface.
+// The reconstruction and interpolated neighbourhood bounds share a 4x4 gather here, combining Photon's bounds
+// preparation and resolve into one pass. Our input is already tonemapped, so no reversible tonemap is needed.
 
 vec3 RGBToYCoCg(vec3 c) {
     return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
@@ -20,117 +11,127 @@ vec3 YCoCgToRGB(vec3 c) {
     return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
 }
 
-vec2 GetScaledInputPos() {
-    vec2 jitterPx = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5; // where this frame sampled, in scaled pixels
-    return texCoord * scaledViewSizeF + jitterPx;
-}
-
-// Reconstruct the current frame using the same sampling option as history. Clamp to rendered texel centers so
-// neither filter reads the unused part of the targets, preserving the sample position at the screen edges.
-vec3 GetCurrentUpscale(vec2 inputPos) {
-    vec2 position = clamp(inputPos, vec2(0.5), scaledViewSizeF - 0.5);
-    #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
-        return textureCatmullRom(colortex3, position, view, scaledViewSizeF, true);
-    #else
-        return texture2DLod(colortex3, position / view, 0.0).rgb;
-    #endif
-}
-
-// The native TAA's depth-edge and colour bounds, sampled at a clamped scaled-image texel.
-vec3 TAAUNeighbourhoodSample(ivec2 coord, float z0, float z1, inout float edge, inout vec3 minclr, inout vec3 maxclr) {
-    float z0CheckLinear = GetLinearDepth(texelFetch(depthtex0, coord, 0).r);
-    float z1CheckLinear = GetLinearDepth(texelFetch(depthtex1, coord, 0).r);
-    float z0Linear = GetLinearDepth(z0);
-    float z1Linear = GetLinearDepth(z1);
-    if (max(abs(z0CheckLinear - z0Linear), abs(z1CheckLinear - z1Linear)) > 0.09) {
-        edge = regularEdge;
-
-        float approxClosestDist = min(z0CheckLinear, z0Linear) * far;
-        if (approxClosestDist < farEdgeDist)
-            if (int(texelFetch(colortex6, coord, 0).g * 255.1) == 253) // Reduced Edge TAA (Leaves)
-                edge *= extraEdgeMult;
+#if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
+    vec4 TAAUCubicWeights(float f) {
+        float f2 = f * f, f3 = f2 * f;
+        return vec4(-0.5 * f3 + f2 - 0.5 * f,
+                     1.5 * f3 - 2.5 * f2 + 1.0,
+                    -1.5 * f3 + 2.0 * f2 + 0.5 * f,
+                     0.5 * f3 - 0.5 * f2);
     }
+#endif
 
-    vec3 clr = texelFetch(colortex3, coord, 0).rgb;
-    minclr = min(minclr, clr); maxclr = max(maxclr, clr);
-    return clr;
+void ReconstructTAAU(vec2 inputPos, out vec3 current, out vec3 minColor, out vec3 maxColor, out float confidence) {
+    vec2 position = clamp(inputPos, vec2(0.5), scaledViewSizeF - 0.5);
+    ivec2 base = ivec2(floor(position - 0.5));
+    vec2 f = fract(position - 0.5);
+
+    #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
+        vec4 wx = TAAUCubicWeights(f.x), wy = TAAUCubicWeights(f.y);
+    #else
+        vec4 wx = vec4(0.0, 1.0 - f.x, f.x, 0.0), wy = vec4(0.0, 1.0 - f.y, f.y, 0.0);
+    #endif
+    confidence = max(wx.y, wx.z) * max(wy.y, wy.z);
+
+    // The four bilinear centres each need a 3x3 neighbourhood: their union is just 16 source texels.
+    // Clamp every read to the rendered viewport, including at odd resolutions and screen edges.
+    vec3 samples[16];
+    current = vec3(0.0);
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            ivec2 coord = clamp(base + ivec2(x - 1, y - 1), ivec2(0), scaledViewSize - 1);
+            vec3 c = texelFetch(colortex3, coord, 0).rgb;
+            current += c * wx[x] * wy[y];
+            samples[y * 4 + x] = RGBToYCoCg(c);
+        }
+    }
+    // Cubic ringing can overshoot our LDR input. Fall back to the same footprint's bilinear reconstruction.
+    if (any(lessThan(current, vec3(0.0))) || any(greaterThan(current, vec3(1.0))))
+        current = YCoCgToRGB(mix(mix(samples[5], samples[6], f.x), mix(samples[9], samples[10], f.x), f.y));
+
+    vec3 lower[4], upper[4];
+    for (int y = 0; y < 2; y++) {
+        for (int x = 0; x < 2; x++) {
+            int center = (y + 1) * 4 + x + 1;
+            vec3 crossMin = min(samples[center], min(min(samples[center - 1], samples[center + 1]), min(samples[center - 4], samples[center + 4])));
+            vec3 crossMax = max(samples[center], max(max(samples[center - 1], samples[center + 1]), max(samples[center - 4], samples[center + 4])));
+            vec3 cornerMin = min(min(samples[center - 5], samples[center - 3]), min(samples[center + 3], samples[center + 5]));
+            vec3 cornerMax = max(max(samples[center - 5], samples[center - 3]), max(samples[center + 3], samples[center + 5]));
+            // Average the cross and full-square bounds, then interpolate those limits at the output sample.
+            lower[y * 2 + x] = 0.5 * (crossMin + min(crossMin, cornerMin));
+            upper[y * 2 + x] = 0.5 * (crossMax + max(crossMax, cornerMax));
+        }
+    }
+    minColor = mix(mix(lower[0], lower[1], f.x), mix(lower[2], lower[3], f.x), f.y);
+    maxColor = mix(mix(upper[0], upper[1], f.x), mix(upper[2], upper[3], f.x), f.y);
+}
+
+// Dilate foreground motion over silhouettes using the centre and four corners of a 5x5 footprint.
+vec3 ClosestTAAUSample(sampler2D depthSampler, ivec2 texel) {
+    vec3 closest = vec3(vec2(texel), texelFetch(depthSampler, texel, 0).r);
+    for (int y = -2; y <= 2; y += 4) {
+        for (int x = -2; x <= 2; x += 4) {
+            ivec2 coord = clamp(texel + ivec2(x, y), ivec2(0), scaledViewSize - 1);
+            float depth = texelFetch(depthSampler, coord, 0).r;
+            if (depth < closest.z) closest = vec3(vec2(coord), depth);
+        }
+    }
+    return closest;
 }
 
 void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
-    vec2 inputPos = GetScaledInputPos();
+    vec2 jitterPx = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5;
+    vec2 inputPos = texCoord * scaledViewSizeF + jitterPx;
     ivec2 inputTexel = clamp(ivec2(inputPos), ivec2(0), scaledViewSize - 1);
 
-    vec3 currentSample = texelFetch(colortex3, inputTexel, 0).rgb;
-    // Distance from this pixel's center to where that sample was taken, in output pixels
-    vec2 sampleOffset = (vec2(inputTexel) + 0.5 - inputPos) / renderScaleV;
-    float sampleWeight = exp(-2.5 * dot(sampleOffset, sampleOffset));
-
-    temp = vec3(0.0);
+    vec3 current, minColor, maxColor;
+    float confidence;
+    ReconstructTAAU(inputPos, current, minColor, maxColor, confidence);
+    color = current;
+    temp = current;
     tempAlpha = 1.0;
 
-    float z1 = texelFetch(depthtex1, inputTexel, 0).r;
-    vec4 materialData = texelFetch(colortex6, inputTexel, 0);
-    int materialMask = int(materialData.g * 255.1);
-
-    vec4 screenPos1 = vec4(texCoord, z1, 1.0);
-    vec4 viewPos1 = gbufferProjectionInverse * (screenPos1 * 2.0 - 1.0);
-    viewPos1 /= viewPos1.w;
-    float lViewPos1 = length(viewPos1);
-
-    #ifdef ENTITY_TAA_NOISY_CLOUD_FIX
-        float cloudLinearDepth = texture2D(colortex5, ToBufferUV(texCoord)).a;
-
-        if (pow2(cloudLinearDepth) * renderDistance < min(lViewPos1, renderDistance)) {
-            materialMask = 0;
-        }
-    #endif
-
-    // What moves by itself: its history is reprojected for the camera only, the hand's not at all (it moves with the
-    // camera), and clipped harder below
-    bool hand = z1 < 0.56; // the hand's own projection squeezes it into depth 0.44-0.56
-    bool entity = !hand && (
-        abs(materialMask - 149.5) < 50.0 // Entity Reflection Handling (see common.glsl for details)
-        || materialMask == 254 // No SSAO, No TAA, Reduce Reflection
-    );
-    bool dynamic = hand || entity;
-
-    float z0 = texelFetch(depthtex0, inputTexel, 0).r;
-
-    vec2 prvCoord = texCoord;
-    if (z1 > 0.56) prvCoord = Reprojection(viewPos1);
-
+    // depthtex0 includes depth-writing translucent surfaces; depthtex1 would reproject their background instead.
+    vec3 closest = ClosestTAAUSample(depthtex0, inputTexel);
+    mat4 projectionInverse = gbufferProjectionInverse;
+    mat4 previousProjection = gbufferPreviousProjection;
+    bool lodChunk = false;
     #if defined DISTANT_HORIZONS || defined VOXY
-        bool lodChunk = false;
-        if (z1 == 1.0) {
+        if (closest.z == 1.0) {
             #ifdef VOXY
-                float vxDepth = texelFetch(vxDepthTexOpaque, inputTexel, 0).r;
-                if (vxDepth < 1.0) {
-                    vec3 vxCoord = vec3(texCoord, vxDepth);
-                    prvCoord = Reprojection(vxCoord, vxProjInv, vxProjPrev);
-                    lodChunk = true;
-                }
-            #elif defined DISTANT_HORIZONS
-                float dhDepth = texelFetch(dhDepthTex1, inputTexel, 0).r;
-                if (dhDepth < 1.0) {
-                    vec3 dhCoord = vec3(texCoord, dhDepth);
-                    prvCoord = Reprojection(dhCoord, dhProjectionInverse, dhPreviousProjection);
-                    lodChunk = true;
-                }
+                vec3 lodClosest = ClosestTAAUSample(vxDepthTexTrans, inputTexel);
+            #else
+                vec3 lodClosest = ClosestTAAUSample(dhDepthTex, inputTexel);
             #endif
+            if (lodClosest.z < 1.0) {
+                closest = lodClosest;
+                lodChunk = true;
+                #ifdef VOXY
+                    projectionInverse = vxProjInv;
+                    previousProjection = vxProjPrev;
+                #else
+                    projectionInverse = dhProjectionInverse;
+                    previousProjection = dhPreviousProjection;
+                #endif
+            }
         }
     #endif
+
+    vec2 closestUV = (closest.xy + 0.5 - jitterPx) / scaledViewSizeF;
+    vec4 viewPos = projectionInverse * vec4(vec3(closestUV, closest.z) * 2.0 - 1.0, 1.0);
+    viewPos /= viewPos.w;
+    float surfaceDistance = length(viewPos.xyz);
+    bool hand = !lodChunk && closest.z < 0.56;
+    // The hand stays in screen space. Other surfaces supply camera motion to the output pixel, even when the
+    // closest sample belongs to a neighbouring foreground object rather than this pixel's background.
+    vec2 prvCoord = texCoord;
+    if (!hand)
+        prvCoord += Reprojection(vec3(closestUV, closest.z), projectionInverse, previousProjection) - closestUV;
 
     #ifdef CLOUDS_REIMAGINED
-        // Clouds do not write geometry depth. Against the sky, use their raymarched distance so camera
-        // translation follows the cloud instead of the far plane. Unbound clouds retain baseline TAAU.
-        if (!dynamic && z0 == 1.0 && z1 == 1.0
-            #if defined DISTANT_HORIZONS || defined VOXY
-                && !lodChunk
-            #endif
-        ) {
+        // Clouds have no geometry depth. Preserve their camera-translation reprojection against empty sky.
+        if (!lodChunk && closest.z == 1.0) {
             float cloudDepth = texelFetch(colortex5, inputTexel, 0).a;
-            // A sky sample can contribute to a pixel partly covered by cloud. Keep its history aligned with
-            // that cloud across the 2x2 reconstruction footprint, using at most three additional depth reads.
             if (cloudDepth == 1.0) {
                 ivec2 cloudBase = ivec2(floor(inputPos - 0.5));
                 for (int y = 0; y < 2; y++) {
@@ -143,126 +144,42 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
                     }
                 }
             }
-
-            // Alpha 1 is also the no-cloud value; the top-right texel may hold the light-shaft factor.
+            // Alpha 1 is also the no-cloud value; the top-right texel may contain the light-shaft factor.
             if (cloudDepth > 0.0 && cloudDepth < 1.0 && any(notEqual(inputTexel, scaledViewSize - 1))) {
-                float cloudDistance = cloudDepth * cloudDepth * renderDistance;
-                vec4 cloudViewPos = vec4(normalize(viewPos1.xyz) * cloudDistance, 1.0);
-                prvCoord = Reprojection(cloudViewPos);
+                surfaceDistance = cloudDepth * cloudDepth * renderDistance;
+                vec4 ray = gbufferProjectionInverse * vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);
+                prvCoord = Reprojection(vec4(normalize(ray.xyz) * surfaceDistance, 1.0));
             }
         }
     #endif
 
+    // Validate before fetching history. Alpha now holds pixel age; black is a valid history colour.
+    if (any(isnan(prvCoord)) || any(isinf(prvCoord)) || any(lessThanEqual(prvCoord, vec2(0.0))) || any(greaterThanEqual(prvCoord, vec2(1.0)))) return;
+    float age = texelFetch(colortex2, clamp(ivec2(prvCoord * view), ivec2(0), ivec2(view) - 1), 0).a;
+    if (isnan(age) || isinf(age) || age <= 0.0) return;
     #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
-        vec3 tempColor = textureCatmullRom(colortex2, prvCoord, view);
+        vec3 history = textureCatmullRom(colortex2, prvCoord, view);
     #else
-        vec3 tempColor = texture2D(colortex2, prvCoord).rgb;
+        vec3 history = texture2DLod(colortex2, prvCoord, 0.0).rgb;
     #endif
+    if (any(isnan(history)) || any(isinf(history))) return;
 
-    if (tempColor == vec3(0.0) || any(isnan(tempColor))) { // Fixes the first frame and nans
-        color = GetCurrentUpscale(inputPos);
-        temp = color;
-        return;
-    }
+    history = RGBToYCoCg(clamp(history, 0.0, 1.0));
+    bool clipped = any(lessThan(history, minColor)) || any(greaterThan(history, maxColor));
+    history = ClipAABB(history, minColor, maxColor);
+    // Distance to the nearest clipping boundary indicates how safely history fits the current neighbourhood.
+    float flickerReduction = clipped ? 0.0 : clamp(length(min(history - minColor, maxColor - history)) * 5.0, 0.0, 1.0);
 
-    // Far away a moving object covers few pixels, and the jitter changes its neighbourhood completely every frame:
-    // the hard clip below would keep rejecting its history and it would shimmer. Beyond 8 blocks it takes the
-    // world's treatment instead, more of it with distance (entityFactor).
-    // History alpha: entityFactor where a moving object was (0 up close), rising back to 1 over 4 frames. The world
-    // just uncovered behind one is treated like the object for those frames, so a close one doesn't leave a trail.
-    float historyAlpha = texelFetch(colortex2, clamp(ivec2(prvCoord * view), ivec2(0), ivec2(view) - 1), 0).a;
-    float entityFactor = entity ? 1.0 - exp2(-0.05 * max(lViewPos1 - 8.0, 0.0)) : 0.0;
-    // Translucent geometry may never write depthtex1. Its own distance must cap the background's blend.
-    // Opaque entities keep alpha 1 and retain their existing distance-dependent stability.
-    entityFactor = min(entityFactor, materialData.a);
-    float distanceFactor = dynamic ? entityFactor : historyAlpha;
-    tempAlpha = dynamic ? entityFactor : min(historyAlpha + 0.25, 1.0);
-    dynamic = dynamic || historyAlpha < 1.0;
+    float distanceFactor = 1.0 - exp2(-0.025 * surfaceDistance);
+    age = min(age + 1.0, 32.0);
+    float currentWeight = max(1.0 / age, mix(0.35, 0.10, distanceFactor));
+    currentWeight *= pow(confidence, 5.0) * (1.0 - flickerReduction);
 
-    // Gather RGB bounds and, for moving objects, YCoCg moments from the same samples.
-    // Depth-edge checks stay unconditional, including while the camera is stationary.
-    float edge = 0.0;
-    vec3 minclr = currentSample, maxclr = currentSample;
-    vec3 m1 = vec3(0.0), m2 = vec3(0.0);
-    if (dynamic) {
-        m1 = RGBToYCoCg(currentSample);
-        m2 = m1 * m1;
-    }
-    ivec2 maxTexel = scaledViewSize - 1;
-    for (int i = 0; i < 8; i++) {
-        vec3 clr = TAAUNeighbourhoodSample(clamp(inputTexel + neighbourhoodOffsets[i], ivec2(0), maxTexel), z0, z1, edge, minclr, maxclr);
-        if (dynamic) {
-            vec3 ycocg = RGBToYCoCg(clr);
-            m1 += ycocg; m2 += ycocg * ycocg;
-        }
-    }
-    tempColor = ClipAABB(tempColor, minclr, maxclr);
-    vec3 tempColorWorld = tempColor; // before the moving-object clip below
-
-    // Moving objects: clip the history to the neighbourhood's mean +- 1 sigma in YCoCg, noting how far that had to
-    // move it
-    float dynamicClip = 0.0;
-    if (dynamic) {
-        m1 /= 9.0;
-        vec3 sigma = sqrt(max(m2 / 9.0 - m1 * m1, 0.0));
-        vec3 history = RGBToYCoCg(tempColor);
-        vec3 clipped = ClipAABB(history, m1 - sigma, m1 + sigma);
-        dynamicClip = length(clipped - history) / (length(sigma) + 0.01);
-        tempColor = YCoCgToRGB(clipped);
-    }
-
-    if (materialMask == 253) // Reduced Edge TAA (Leaves)
-        edge *= extraEdgeMult;
-
-    #if defined DISTANT_HORIZONS || defined VOXY
-        if (lodChunk) {
-            blendMinimum = 0.75;
-            blendVariable = 0.05;
-            blendConstant = 0.85;
-            edge = 0.0;
-        }
-    #endif
-
-    vec2 velocity = (texCoord - prvCoord.xy) * view;
-    float blendFactor = float(prvCoord.x > 0.0 && prvCoord.x < 1.0 &&
-                              prvCoord.y > 0.0 && prvCoord.y < 1.0);
-    float velocityFactor = dot(velocity, velocity) * 10.0;
-
-    #ifdef END
-        if (z1 == 1.0)
-        #if defined DISTANT_HORIZONS || defined VOXY
-            if (!lodChunk)
-        #endif
-        {
-            blendVariable *= 0.0;
-            #if LIGHTSHAFT_QUALI_DEFINE == 2 // Medium (Default)
-                edge = max(edge, regularEdge * 0.5);
-            #elif LIGHTSHAFT_QUALI_DEFINE == 3 // High
-                edge = max(edge, regularEdge * 0.75);
-            #elif LIGHTSHAFT_QUALI_DEFINE == 4 // Very High
-                edge = max(edge, regularEdge);
-            #endif
-        }
-    #endif
-
-    blendFactor *= max(exp(-velocityFactor) * blendVariable + blendConstant - min(length(cameraPosition - previousCameraPosition), 0.05) * edge, blendMinimum);
-
-    // Off-screen history (blendFactor 0) falls back to the reconstructed current frame.
-    if (blendFactor == 0.0) {
-        color = GetCurrentUpscale(inputPos);
-    } else if (dynamic) {
-        // A shorter history, and less of it the more the clip above had to correct it. The current frame takes its
-        // full share, from the nearest sample where that covers this pixel well and a filtered upscale elsewhere.
-        float worldBlendFactor = blendFactor;
-        blendFactor = min(blendFactor, 0.75) * exp(-4.0 * dynamicClip);
-        vec3 current = mix(GetCurrentUpscale(inputPos), currentSample, sampleWeight);
-        color = mix(tempColor, current, 1.0 - blendFactor);
-        // Towards the world's result with distance (see entityFactor)
-        vec3 worldColor = mix(tempColorWorld, currentSample, (1.0 - worldBlendFactor) * sampleWeight);
-        color = mix(color, worldColor, distanceFactor);
-    } else {
-        // The native TAA's share for the current frame, given to the nearest sample by how well it covers this pixel
-        color = mix(tempColor, currentSample, (1.0 - blendFactor) * sampleWeight);
-    }
+    // Reduce history moderately when reprojection lands between history texels to avoid blur during motion.
+    vec2 pixelOffset = 1.0 - abs(2.0 * fract(prvCoord * view) - 1.0);
+    float offcenter = 0.75 + 0.25 * sqrt(max(pixelOffset.x * pixelOffset.y, 0.0));
+    float historyWeight = (1.0 - currentWeight) * offcenter;
+    color = clamp(mix(current, YCoCgToRGB(history), historyWeight), 0.0, 1.0);
     temp = color;
+    tempAlpha = age * offcenter;
 }
