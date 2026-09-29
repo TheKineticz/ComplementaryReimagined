@@ -155,7 +155,7 @@
     #define DISTANT_LIGHT_BOKEH
 
     #define TAA_DEFINE -1 //[-1 0 1]
-    #define RENDER_SCALE_PCT 100 //[50 58 67 75 83 90 100]
+    #define RENDER_SCALE_PCT 100 //[50 67 75 100]
     #define TAA_SMOOTHING 3 //[2 3 4]
     #define TAA_JITTER 1 //[0 1 2 3]
     #define TAA_MOVEMENT_IMPROVEMENT_FILTER 1 //[0 1]
@@ -586,16 +586,10 @@
         #define TAAU 1 // Internal flag, not a boolean option. Keep shaders.properties in sync.
         #if RENDER_SCALE_PCT == 50
             #define RENDER_SCALE_M 0.50
-        #elif RENDER_SCALE_PCT == 58
-            #define RENDER_SCALE_M 0.58
         #elif RENDER_SCALE_PCT == 67
             #define RENDER_SCALE_M 0.67
         #elif RENDER_SCALE_PCT == 75
             #define RENDER_SCALE_M 0.75
-        #elif RENDER_SCALE_PCT == 83
-            #define RENDER_SCALE_M 0.83
-        #elif RENDER_SCALE_PCT == 90
-            #define RENDER_SCALE_M 0.90
         #endif
         // The upscaler needs full jitter, and it weighs its history itself (taau.glsl), so smoothing does not apply.
         // Iris reads menus from the unprocessed shaders.properties, so the two options can't be hidden while
