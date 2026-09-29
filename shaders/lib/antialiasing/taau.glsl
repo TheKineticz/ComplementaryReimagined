@@ -12,10 +12,13 @@
 // the pixel marks where the camera uncovers background; and nearby entities, which have no motion vectors, always
 // count as changing. Unchanged pixels keep a long history that is only loosely checked, so that fine distant detail
 // stays calm; changing ones are clipped hard and keep little of their past.
+//
+// Thin detail, like distant foliage or the sliver of a face seen edge-on, can fall between all of a frame's samples.
+// While the camera is still, the history's own detail around the pixel therefore also counts as expected variation,
+// both in the change test and in the check of unchanged pixels, so that such detail isn't dropped and re-found.
 
 const float taauSampleSigma = 0.4;        // accumulation Gaussian, in output pixels
-const float taauStableSigma = 0.75;       // neighbourhood statistics for unchanged pixels, in scaled pixels
-const float taauReactiveSigma = 0.5;      // neighbourhood statistics for changing pixels, in scaled pixels
+const float taauStableSigma = 0.75;       // neighbourhood statistics, in scaled pixels (changing pixels: / sqrt(2))
 const float taauStableGamma = 2.5;        // variance box size for unchanged pixels, in standard deviations
 const float taauReactiveGamma = 1.0;      // variance box size for changing pixels, in standard deviations
 const float taauConsistentWeight = 24.0;  // history weight cap where the local mean matches the history exactly
@@ -27,6 +30,8 @@ const float taauParallaxRange = 1.0;      // parallax that makes a pixel fully r
 const float taauClipSampleWeight = 2.0;   // sample weight that makes the check of an unchanged pixel a full clip
 const float taauResampleLoss = 0.1;       // weight lost per axis when history is read halfway between texels
 const float taauReactiveFill = 2.0;       // extra weight changing pixels take from the bilinear reconstruction
+const float taauDetailNoise = 2.0;        // history detail counted as expected variation, in its standard deviations
+const float taauDetailMotion = 1.0;       // motion at which that stops, in output pixels per frame
 
 vec3 RGBToYCoCg(vec3 c) {
     return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
@@ -50,8 +55,10 @@ void TAAUDepthRange(sampler2D depthSampler, ivec2 texel, out vec3 nearest, out v
 }
 
 // History read at uv, with the history's Catmull-Rom sampling when that is on. Alpha is the history weight near uv.
-// lowPass receives a blurred history, about three pixels wide, for the change test.
-vec4 TAAUHistory(vec2 uv, out vec3 lowPass) {
+// localMean and localDeviation receive the YCoCg mean and standard deviation of the history over about three pixels.
+vec4 TAAUHistory(vec2 uv, out vec3 localMean, out vec3 localDeviation) {
+    vec3 top, left, right, bottom;
+    vec4 history, center;
     #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
         // The five-tap Catmull-Rom of textureCatmullRom (taa.glsl), whose taps also make the blurred history
         vec2 position = uv * view;
@@ -70,21 +77,31 @@ vec4 TAAUHistory(vec2 uv, out vec3 lowPass) {
         vec2 tc12 = (centerPosition + w2 / w12) / view;
         vec2 tc0 = (centerPosition - 1.0) / view;
         vec2 tc3 = (centerPosition + 2.0) / view;
-        vec3 top = texture2DLod(colortex2, vec2(tc12.x, tc0.y), 0).rgb;
-        vec3 left = texture2DLod(colortex2, vec2(tc0.x, tc12.y), 0).rgb;
-        vec4 center = texture2DLod(colortex2, tc12, 0);
-        vec3 right = texture2DLod(colortex2, vec2(tc3.x, tc12.y), 0).rgb;
-        vec3 bottom = texture2DLod(colortex2, vec2(tc12.x, tc3.y), 0).rgb;
-        lowPass = 0.2 * (top + left + center.rgb + right + bottom);
+        top = texture2DLod(colortex2, vec2(tc12.x, tc0.y), 0).rgb;
+        left = texture2DLod(colortex2, vec2(tc0.x, tc12.y), 0).rgb;
+        center = texture2DLod(colortex2, tc12, 0);
+        right = texture2DLod(colortex2, vec2(tc3.x, tc12.y), 0).rgb;
+        bottom = texture2DLod(colortex2, vec2(tc12.x, tc3.y), 0).rgb;
         vec4 color = vec4(top, 1.0) * (w12.x * w0.y) + vec4(left, 1.0) * (w0.x * w12.y)
                    + vec4(center.rgb, 1.0) * (w12.x * w12.y)
                    + vec4(right, 1.0) * (w3.x * w12.y) + vec4(bottom, 1.0) * (w12.x * w3.y);
-        return vec4(color.rgb / color.a, center.a);
+        history = vec4(color.rgb / color.a, center.a);
     #else
-        vec4 history = texture2DLod(colortex2, uv, 0);
-        lowPass = history.rgb;
-        return history;
+        // The same five-tap cross, for the local statistics only
+        center = texture2DLod(colortex2, uv, 0);
+        history = center;
+        vec2 offset = 1.5 / view;
+        top = texture2DLod(colortex2, uv - vec2(0.0, offset.y), 0).rgb;
+        left = texture2DLod(colortex2, uv - vec2(offset.x, 0.0), 0).rgb;
+        right = texture2DLod(colortex2, uv + vec2(offset.x, 0.0), 0).rgb;
+        bottom = texture2DLod(colortex2, uv + vec2(0.0, offset.y), 0).rgb;
     #endif
+    vec3 t0 = RGBToYCoCg(top), t1 = RGBToYCoCg(left), t2 = RGBToYCoCg(center.rgb), t3 = RGBToYCoCg(right);
+    vec3 t4 = RGBToYCoCg(bottom);
+    localMean = 0.2 * (t0 + t1 + t2 + t3 + t4);
+    vec3 squares = 0.2 * (t0 * t0 + t1 * t1 + t2 * t2 + t3 * t3 + t4 * t4);
+    localDeviation = sqrt(max(squares - localMean * localMean, 0.0));
+    return history;
 }
 
 void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
@@ -178,8 +195,8 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     #endif
 
     // One pass over the 3x3 scaled samples around the pixel centre gathers the accumulation sum (narrow Gaussian of
-    // the distance in output pixels), a bilinear reconstruction (tent weights), and YCoCg bounds and moments with a
-    // wider and a narrower Gaussian for the history check. The Gaussians are separable, exp2(-d^2 log2(e) / 2 sigma^2).
+    // the distance in output pixels), a bilinear reconstruction (tent weights), and YCoCg bounds and moments for the
+    // history check, with a wide Gaussian and its square. The Gaussians are separable, exp2(-d^2 log2(e) / 2 sigma^2).
     vec2 centerOffset = vec2(centerTexel) + 0.5 - inputPos; // centre sample relative to the pixel centre
     vec3 dx = centerOffset.x + vec3(-1.0, 0.0, 1.0), dy = centerOffset.y + vec3(-1.0, 0.0, 1.0);
     vec3 dx2 = dx * dx, dy2 = dy * dy;
@@ -187,13 +204,11 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     vec3 sampleX = exp2(dx2 * sampleK.x), sampleY = exp2(dy2 * sampleK.y);
     vec3 stableX = exp2(dx2 * (-0.7213475 / (taauStableSigma * taauStableSigma)));
     vec3 stableY = exp2(dy2 * (-0.7213475 / (taauStableSigma * taauStableSigma)));
-    vec3 reactiveX = exp2(dx2 * (-0.7213475 / (taauReactiveSigma * taauReactiveSigma)));
-    vec3 reactiveY = exp2(dy2 * (-0.7213475 / (taauReactiveSigma * taauReactiveSigma)));
     vec3 tentX = max(1.0 - abs(dx), 0.0), tentY = max(1.0 - abs(dy), 0.0);
 
     vec3 sampleSum = vec3(0.0), fill = vec3(0.0), lo = vec3(1e9), hi = vec3(-1e9);
     vec3 stableSum = vec3(0.0), stableSquares = vec3(0.0), reactiveSum = vec3(0.0), reactiveSquares = vec3(0.0);
-    float sampleWeight = 0.0, stableWeight = 0.0, stableWeight2 = 0.0, reactiveWeight = 0.0;
+    float sampleWeight = 0.0, stableWeight = 0.0, reactiveWeight = 0.0;
     for (int y = 0; y < 3; y++) {
         for (int x = 0; x < 3; x++) {
             ivec2 coord = clamp(centerTexel + ivec2(x - 1, y - 1), ivec2(0), scaledViewSize - 1);
@@ -210,8 +225,7 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
             stableSum += s * ycocg;
             stableSquares += s * ycocg * ycocg;
             stableWeight += s;
-            stableWeight2 += s * s;
-            float r = reactiveX[x] * reactiveY[y];
+            float r = s * s;
             reactiveSum += r * ycocg;
             reactiveSquares += r * ycocg * ycocg;
             reactiveWeight += r;
@@ -222,8 +236,8 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     vec3 reactiveMean = reactiveSum / reactiveWeight;
     vec3 reactiveDeviation = sqrt(max(reactiveSquares / reactiveWeight - reactiveMean * reactiveMean, 0.0));
 
-    vec3 historyLowPass;
-    vec4 history = TAAUHistory(prvCoord, historyLowPass);
+    vec3 historyMean, historyDeviation;
+    vec4 history = TAAUHistory(prvCoord, historyMean, historyDeviation);
     float historyWeight = history.a;
     bool validHistory = all(greaterThan(prvCoord, vec2(0.0))) && all(lessThan(prvCoord, vec2(1.0)))
                      && historyWeight > 0.0 && !any(isnan(history)) && !any(isinf(history));
@@ -233,18 +247,26 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     if (validHistory) {
         vec3 historyYCoCg = RGBToYCoCg(clamp(history.rgb, 0.0, 1.0));
 
+        // Detail the history holds around the pixel, which this frame's samples may have missed (while still)
+        float stillness = clamp(1.0 - length((texCoord - prvCoord) * view) / taauDetailMotion, 0.0, 1.0);
+        vec3 detail = historyDeviation * stillness;
+
         // Change test: the jitter barely moves the wide local mean of the current samples, so a mean that differs
         // from the blurred history by several of its standard errors means the content changed
-        vec3 standardError = stableDeviation * sqrt(stableWeight2) / stableWeight + 0.01;
-        float change = length((stableMean - RGBToYCoCg(clamp(historyLowPass, 0.0, 1.0))) / standardError);
+        // (the standard error of a weighted mean is spread * sqrt(sum of squared weights) / sum of weights, and the
+        // squared weights are the ones already summed for changing pixels)
+        vec3 spread = sqrt(stableDeviation * stableDeviation + taauDetailNoise * taauDetailNoise * detail * detail);
+        vec3 standardError = spread * sqrt(reactiveWeight) / stableWeight + 0.01;
+        float change = length((stableMean - historyMean) / standardError);
         reactive = max(reactive, clamp((change - taauChangeThreshold) / taauChangeRange, 0.0, 1.0));
 
-        // Clip the history into the box of the current samples: a loose one for unchanged pixels, a tight one for
-        // changing pixels. An unchanged pixel is only clipped as far as this frame's samples cover it, because the
-        // few samples around it can miss detail that the history rightly holds.
+        // Clip the history into the box of the current samples: a loose one for unchanged pixels, widened by the
+        // history's detail, and a tight one for changing pixels. An unchanged pixel is only clipped as far as this
+        // frame's samples cover it, because the few samples around it can miss detail that the history rightly holds.
         vec3 stableSpread = taauStableGamma * stableDeviation, reactiveSpread = taauReactiveGamma * reactiveDeviation;
-        vec3 boxMin = max(lo, mix(stableMean - stableSpread, reactiveMean - reactiveSpread, reactive));
-        vec3 boxMax = min(hi, mix(stableMean + stableSpread, reactiveMean + reactiveSpread, reactive));
+        vec3 widen = detail * (1.0 - reactive);
+        vec3 boxMin = max(lo - widen, mix(stableMean - stableSpread - widen, reactiveMean - reactiveSpread, reactive));
+        vec3 boxMax = min(hi + widen, mix(stableMean + stableSpread + widen, reactiveMean + reactiveSpread, reactive));
         clipped = ClipAABB(historyYCoCg, boxMin, boxMax);
         clipped = mix(historyYCoCg, clipped, max(min(sampleWeight / taauClipSampleWeight, 1.0), reactive));
 
