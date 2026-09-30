@@ -3,9 +3,9 @@ const float taauNeighborhoodSigma = 0.75;
 const float taauStableClipSigma = 2.5;
 const float taauReactiveClipSigma = 1.0;
 
-const float taauConsistentHistoryCap = 24.0;
-const float taauStableHistoryCap = 12.0;
-const float taauReactiveHistoryCap = 4.0;
+const float taauConsistentHistoryCap = 12.0;
+const float taauStableHistoryCap = 6.0;
+const float taauReactiveHistoryCap = 2.0;
 
 const float taauChangeThreshold = 2.0;
 const float taauChangeRange = 2.0;
@@ -18,7 +18,7 @@ const float taauDetailMotionPixels = 1.0;
 
 const float taauReflectionShare = 0.3;
 
-const float taauNearHistoryScale = 0.1;
+const float taauNearHistoryScale = 0.2;
 const float taauHistoryHalfRecoveryDistance = 32.0;
 
 vec3 RGBToYCoCg(vec3 c) {
@@ -142,13 +142,6 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
         float inverseDistanceGap = abs(nearView.w / nearView.z - farView.w / farView.z);
         float parallax = focalLength * inverseDistanceGap * length(cameraShift.xy + ray * cameraShift.z);
         reactive = min(parallax / taauReactiveParallaxPixels, 1.0);
-
-        // Nearby entities, particles and lightning have no motion vectors
-        int materialMask = int(texelFetch(colortex6, centerTexel, 0).g * 255.1);
-        if (!lodChunk && (abs(materialMask - 149.5) < 50.0 || materialMask == 254)) {
-            float texelSize = focalLength / outputPerInput.y * abs(nearView.w / nearView.z) / 16.0;
-            reactive = max(reactive, clamp(texelSize - 1.0, 0.0, 1.0));
-        }
 
         float surfaceDistance = length(nearView.xyz / nearView.w);
         weightScale = mix(taauNearHistoryScale, 1.0, 1.0 - exp2(-surfaceDistance / taauHistoryHalfRecoveryDistance));
