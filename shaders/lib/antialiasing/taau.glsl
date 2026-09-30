@@ -231,8 +231,11 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
         // Prevents thin detail flickering when standing still
         float stillness = clamp(1.0 - length((texCoord - prvCoord) * view) / taauDetailMotionPixels, 0.0, 1.0);
         vec3 detail = historyDeviation * stillness;
+        // Distant detail barely moves on screen, so it keeps its noise allowance while the camera moves
+        float farness = (weightScale - taauNearHistoryScale) / (1.0 - taauNearHistoryScale);
+        vec3 detailNoise = historyDeviation * max(stillness, farness * farness);
 
-        vec3 spread = sqrt(stableDeviation * stableDeviation + taauDetailNoiseScale * taauDetailNoiseScale * detail * detail);
+        vec3 spread = sqrt(stableDeviation * stableDeviation + taauDetailNoiseScale * taauDetailNoiseScale * detailNoise * detailNoise);
         vec3 standardError = spread * sqrt(reactiveWeight) / stableWeight + 0.01;
         float change = length((stableMean - historyMean) / standardError);
         reactive = max(reactive, clamp((change - taauChangeThreshold) / taauChangeRange, 0.0, 1.0));
