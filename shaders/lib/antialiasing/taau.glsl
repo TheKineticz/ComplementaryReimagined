@@ -228,22 +228,20 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     if (validHistory) {
         vec3 historyYCoCg = RGBToYCoCg(clamp(history.rgb, 0.0, 1.0));
 
-        // Prevents thin detail flickering when standing still
+        // Prevents thin detail flickering when standing still; distant detail barely moves on screen, so it keeps
+        // the allowance while the camera moves
         float stillness = clamp(1.0 - length((texCoord - prvCoord) * view) / taauDetailMotionPixels, 0.0, 1.0);
-        vec3 detail = historyDeviation * stillness;
-        // Distant detail barely moves on screen, so it keeps its noise allowance while the camera moves
         float farness = (weightScale - taauNearHistoryScale) / (1.0 - taauNearHistoryScale);
-        vec3 detailNoise = historyDeviation * max(stillness, farness * farness);
+        vec3 detail = historyDeviation * max(stillness, farness * farness);
 
-        vec3 spread = sqrt(stableDeviation * stableDeviation + taauDetailNoiseScale * taauDetailNoiseScale * detailNoise * detailNoise);
+        vec3 spread = sqrt(stableDeviation * stableDeviation + taauDetailNoiseScale * taauDetailNoiseScale * detail * detail);
         vec3 standardError = spread * sqrt(reactiveWeight) / stableWeight + 0.01;
         float change = length((stableMean - historyMean) / standardError);
         reactive = max(reactive, clamp((change - taauChangeThreshold) / taauChangeRange, 0.0, 1.0));
 
         vec3 stableSpread = taauStableClipSigma * stableDeviation, reactiveSpread = taauReactiveClipSigma * reactiveDeviation;
-        vec3 widen = detail * (1.0 - reactive);
-        vec3 boxMin = max(minColor - widen, mix(stableMean - stableSpread - widen, reactiveMean - reactiveSpread, reactive));
-        vec3 boxMax = min(maxColor + widen, mix(stableMean + stableSpread + widen, reactiveMean + reactiveSpread, reactive));
+        vec3 boxMin = max(minColor, mix(stableMean - stableSpread, reactiveMean - reactiveSpread, reactive));
+        vec3 boxMax = min(maxColor, mix(stableMean + stableSpread, reactiveMean + reactiveSpread, reactive));
         clipped = ClipAABB(historyYCoCg, boxMin, boxMax);
         clipped = mix(historyYCoCg, clipped, max(min(sampleWeight / taauFullClipSampleWeight, 1.0), reactive));
 
