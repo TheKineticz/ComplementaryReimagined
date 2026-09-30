@@ -16,6 +16,8 @@ const float taauReactiveFillWeight = 2.0;
 const float taauDetailNoiseScale = 2.0;
 const float taauDetailMotionPixels = 1.0;
 
+const float taauReflectionShare = 0.3;
+
 const float taauNearHistoryScale = 0.1;
 const float taauHistoryHalfRecoveryDistance = 32.0;
 
@@ -150,6 +152,13 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
 
         float surfaceDistance = length(nearView.xyz / nearView.w);
         weightScale = mix(taauNearHistoryScale, 1.0, 1.0 - exp2(-surfaceDistance / taauHistoryHalfRecoveryDistance));
+    }
+
+    // Reflection-dominated translucents follow their mirror image
+    vec2 reflection = texelFetch(colortex10, centerTexel, 0).rg;
+    if (!lodChunk && reflection.g > taauReflectionShare) {
+        vec4 ray = gbufferProjectionInverse * vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);
+        prvCoord = Reprojection(vec4(normalize(ray.xyz) * reflection.r, 1.0));
     }
 
     #ifdef CLOUDS_REIMAGINED
