@@ -17,6 +17,13 @@ noperspective in vec2 texCoord;
 //Pipeline Constants//
 
 //Common Variables//
+#if defined TAAU_BLOOM && MOTION_BLUR_EFFECT != 1
+    uniform sampler2D colortex11;
+    #define sceneTex colortex11
+#else
+    #define sceneTex colortex0
+#endif
+
 float pw = 1.0 / viewWidth;
 float ph = 1.0 / viewHeight;
 
@@ -157,47 +164,7 @@ void DoBSLColorSaturation(inout vec3 color) {
     #include "/lib/misc/lensFlare.glsl"
 #endif
 
-//Program//
-void main() {
-    vec3 color = texture2D(colortex0, ToBufferUV(texCoord)).rgb;
-
-    #if defined BLOOM_FOG || LENSFLARE_MODE > 0 && defined OVERWORLD
-        float z0 = texture2D(depthtex0, ToBufferUV(texCoord)).r;
-        vec4 screenPos = vec4(texCoord, z0, 1.0);
-        vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
-        viewPos /= viewPos.w;
-        float lViewPos = length(viewPos.xyz);
-
-        #if defined DISTANT_HORIZONS || defined VOXY
-            #ifdef DISTANT_HORIZONS
-                float z0lod = texelFetch(dhDepthTex, texelCoord, 0).r;
-                vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
-                vec4 viewPosLod = dhProjectionInverse * (screenPosLod * 2.0 - 1.0);
-            #elif defined VOXY
-                float z0lod = texelFetch(vxDepthTexTrans, texelCoord, 0).r;
-                vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
-                vec4 viewPosLod = vxProjInv * (screenPosLod * 2.0 - 1.0);
-            #endif
-            viewPosLod /= viewPosLod.w;
-            lViewPos = min(lViewPos, length(viewPosLod.xyz));
-        #endif
-    #else
-        float lViewPos = 0.0;
-    #endif
-
-    float dither = texture2DLod(noisetex, texCoord * scaledViewSizeF / 128.0, 0.0).b;
-    #ifdef TAA
-        dither = fract(dither + goldenRatio * mod(float(frameCounter), 3600.0));
-    #endif
-
-    #ifdef BLOOM_FOG
-        color /= GetBloomFog(lViewPos);
-    #endif
-
-    #if BLOOM_ENABLED == 1
-        DoBloom(color, texCoord, dither, lViewPos);
-    #endif
-
+void DoColorProcessing(inout vec3 color, vec3 viewPos, float dither) {
     #ifdef COLORGRADING
         color =
             pow(color.r, GR_RC) * vec3(GR_RR, GR_RG, GR_RB) +
@@ -227,13 +194,71 @@ void main() {
     #endif
 
     #if LENSFLARE_MODE > 0 && defined OVERWORLD
-        DoLensFlare(color, viewPos.xyz, dither);
+        DoLensFlare(color, viewPos, dither);
     #endif
 
     DoBSLColorSaturation(color);
+}
 
-    /* DRAWBUFFERS:3 */
-    gl_FragData[0] = vec4(color, 1.0);
+//Program//
+void main() {
+    vec3 color = texelFetch(sceneTex, texelCoord, 0).rgb;
+
+    #if defined BLOOM_FOG || LENSFLARE_MODE > 0 && defined OVERWORLD
+        float z0 = texture2D(depthtex0, ToBufferUV(texCoord)).r;
+        vec4 screenPos = vec4(texCoord, z0, 1.0);
+        vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
+        viewPos /= viewPos.w;
+        float lViewPos = length(viewPos.xyz);
+
+        #if defined DISTANT_HORIZONS || defined VOXY
+            #ifdef DISTANT_HORIZONS
+                float z0lod = texelFetch(dhDepthTex, texelCoord, 0).r;
+                vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
+                vec4 viewPosLod = dhProjectionInverse * (screenPosLod * 2.0 - 1.0);
+            #elif defined VOXY
+                float z0lod = texelFetch(vxDepthTexTrans, texelCoord, 0).r;
+                vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
+                vec4 viewPosLod = vxProjInv * (screenPosLod * 2.0 - 1.0);
+            #endif
+            viewPosLod /= viewPosLod.w;
+            lViewPos = min(lViewPos, length(viewPosLod.xyz));
+        #endif
+    #else
+        vec4 viewPos = vec4(0.0);
+        float lViewPos = 0.0;
+    #endif
+
+    float dither = texture2DLod(noisetex, texCoord * scaledViewSizeF / 128.0, 0.0).b;
+    #ifdef TAA
+        dither = fract(dither + goldenRatio * mod(float(frameCounter), 3600.0));
+    #endif
+
+    #ifdef BLOOM_FOG
+        color /= GetBloomFog(lViewPos);
+    #endif
+
+    #ifdef TAAU_BLOOM
+        vec3 baseColor = color;
+        DoColorProcessing(baseColor, viewPos.xyz, dither);
+        baseColor = clamp01(baseColor);
+    #endif
+
+    #if BLOOM_ENABLED == 1
+        DoBloom(color, texCoord, dither, lViewPos);
+    #endif
+
+    DoColorProcessing(color, viewPos.xyz, dither);
+
+    #ifdef TAAU_BLOOM
+        // Reflections no longer need colortex8; reuse its signed format for the bloom correction.
+        /* DRAWBUFFERS:38 */
+        gl_FragData[0] = vec4(baseColor, 1.0);
+        gl_FragData[1] = vec4(clamp01(color) - baseColor, 1.0);
+    #else
+        /* DRAWBUFFERS:3 */
+        gl_FragData[0] = vec4(color, 1.0);
+    #endif
 }
 
 #endif

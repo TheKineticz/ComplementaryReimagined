@@ -40,6 +40,12 @@ void main() {
 
     #ifdef TAAU
         DoTAAU(color, temp, tempAlpha);
+
+        #ifdef TAAU_BLOOM
+            // Match TAAU's current-frame position and keep the correction out of history.
+            vec3 bloomCorrection = texture2DLod(colortex8, ToBufferUV(TAAJitter(texCoord, 0.5)), 0.0).rgb;
+            color = clamp01(color + bloomCorrection);
+        #endif
     #else
         color = texelFetch(colortex3, texelCoord, 0).rgb;
 

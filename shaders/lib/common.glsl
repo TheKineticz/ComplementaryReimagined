@@ -645,6 +645,10 @@
         #define MOTION_BLUR_BLOOM_FOG_FIX
     #endif
 
+    #if defined TAAU && BLOOM_ENABLED == 1
+        #define TAAU_BLOOM
+    #endif
+
     #if BLOOM_ENABLED == -1
         #undef BLOOM_FOG
     #endif

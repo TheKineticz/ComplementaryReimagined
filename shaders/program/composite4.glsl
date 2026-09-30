@@ -15,7 +15,16 @@ noperspective in vec2 texCoord;
 #endif
 
 //Pipeline Constants//
-const bool colortex0MipmapEnabled = true;
+#ifdef TAAU_BLOOM
+    uniform sampler2D colortex11;
+    const bool colortex11MipmapEnabled = true;
+    #define sceneTex colortex11
+    #define SceneUV(uv) (uv)
+#else
+    const bool colortex0MipmapEnabled = true;
+    #define sceneTex colortex0
+    #define SceneUV(uv) ToBufferUV(uv)
+#endif
 
 //Common Variables//
 float weight[7] = float[7](1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0);
@@ -35,33 +44,13 @@ vec3 BloomTile(float lod, vec2 offset, vec2 scaledCoord) {
     vec2 coord = scaledCoordMinusOffset * scale;
     float padding = 0.5 + 0.005 * scale;
 
-    // Clamping coordinates breaks the texture gradients
-    vec2 bloomDx = vec2(scale * renderScaleV.x / min(viewWidth, 1920.0), 0.0);
-    vec2 bloomDy = vec2(0.0, scale * renderScaleV.y / min(viewHeight, 1080.0));
-    vec2 bloomMaxUV = vec2(1.0);
-    if (RENDER_SCALE_M < 1.0) {
-        float footprint = max(length(bloomDx * view), length(bloomDy * view));
-        float maxLod = max(floor(log2(min(scaledViewSizeF.x, scaledViewSizeF.y))) - 1.0, 0.0);
-        float mip = clamp(ceil(log2(max(footprint, 1.0))), 0.0, maxLod);
-        float limitedFootprint = min(1.0, exp2(mip) / max(footprint, 1.0));
-        bloomDx *= limitedFootprint;
-        bloomDy *= limitedFootprint;
-        vec2 mipSize = vec2(textureSize(colortex0, int(mip)));
-        bloomMaxUV = (max(floor(renderScaleV * mipSize) - 1.0, vec2(1.0)) - 0.5) / mipSize;
-    }
-
     if (abs(coord.x - 0.5) < padding && abs(coord.y - 0.5) < padding) {
         for (int i = -3; i <= 3; i++) {
             for (int j = -3; j <= 3; j++) {
                 float wg = weight[i + 3] * weight[j + 3];
                 vec2 pixelOffset = vec2(i, j) / view;
                 vec2 bloomCoord = (scaledCoordMinusOffset + pixelOffset) * scale;
-                if (RENDER_SCALE_M < 1.0) {
-                    vec2 bloomCoordB = min(bloomCoord * renderScaleV, bloomMaxUV);
-                    bloom += textureGrad(colortex0, bloomCoordB, bloomDx, bloomDy).rgb * wg;
-                } else {
-                    bloom += texture2D(colortex0, bloomCoord).rgb * wg;
-                }
+                bloom += texture2D(sceneTex, bloomCoord).rgb * wg;
             }
         }
         bloom /= 4096.0;
@@ -112,7 +101,7 @@ void main() {
         float dither = Bayer64(gl_FragCoord.xy);
 
         if (z <= 0.56) {
-            color = texelFetch(colortex0, texelCoord, 0).rgb;
+            color = texelFetch(sceneTex, texelCoord, 0).rgb;
         } else {
             float mbwg = 0.0;
             vec2 doublePixel = 2.0 / vec2(viewWidth, viewHeight);
@@ -159,7 +148,7 @@ void main() {
             vec2 coord = texCoord - velocity * (float(sampleCount) / 2.0 - 1.0 + dither);
             for (int i = 0; i < sampleCount; i++, coord += velocity) {
                 vec2 coordb = clamp(coord, doublePixel, 1.0 - doublePixel);
-                vec3 sampleb = texture2DLod(colortex0, ToBufferUV(coordb), 0).rgb;
+                vec3 sampleb = texture2DLod(sceneTex, SceneUV(coordb), 0).rgb;
 
                 #ifdef MOTION_BLUR_BLOOM_FOG_FIX
                     float z1 = texture2D(depthtex1, ToBufferUV(coordb)).r;

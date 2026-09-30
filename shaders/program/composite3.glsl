@@ -164,7 +164,11 @@ void main() {
         #endif
     #endif
 
-    /* DRAWBUFFERS:0 */
+    #ifdef TAAU_BLOOM
+        /* RENDERTARGETS:11 */
+    #else
+        /* DRAWBUFFERS:0 */
+    #endif
     gl_FragData[0] = vec4(color, 1.0);
 }
 
