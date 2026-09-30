@@ -79,7 +79,7 @@ void main() {
 
         vec4 screenPos = vec4(gl_FragCoord.xy / scaledViewSizeF, gl_FragCoord.z, 1.0);
         #ifdef TAA
-            if (RENDER_SCALE_M < 1.0) screenPos.xy = TAAJitter(screenPos.xy, -0.5); // undo the vertex shader's jitter
+            if (RENDER_SCALE_M < 1.0) screenPos.xy = TAAJitter(screenPos.xy, -0.5);
         #endif
         vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
         viewPos /= viewPos.w;
@@ -204,7 +204,6 @@ flat out vec4 glColor;
 //Common Functions//
 
 //Includes//
-
 #ifdef TAA
     #include "/lib/antialiasing/jitter.glsl"
 #endif
@@ -228,11 +227,10 @@ void main() {
     #endif
 
     #ifdef TAA
-        // Render Scale: every gbuffers program is jittered, so the upscaler (taau.glsl) can rebuild it
         if (RENDER_SCALE_M < 1.0) gl_Position.xy = TAAJitter(gl_Position.xy, gl_Position.w);
     #endif
 
-    DoRenderScale(gl_Position); // Render Scale, see common.glsl
+    DoRenderScale(gl_Position);
 }
 
 #endif

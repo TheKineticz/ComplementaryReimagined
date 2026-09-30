@@ -513,7 +513,7 @@ void main() {
         chunkFade = mc_chunkFade;
     #endif
 
-    DoRenderScale(gl_Position); // Render Scale, see common.glsl
+    DoRenderScale(gl_Position);
 }
 
 #endif

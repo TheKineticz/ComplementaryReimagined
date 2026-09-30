@@ -175,7 +175,7 @@ void main() {
     northVec = normalize(gbufferModelView[2].xyz);
     sunVec = GetSunVector();
 
-    DoRenderScale(gl_Position); // Render Scale, see common.glsl
+    DoRenderScale(gl_Position);
 }
 
 #endif

@@ -109,7 +109,6 @@ flat out vec4 glColor;
 //Common Functions//
 
 //Includes//
-
 #ifdef TAA
     #include "/lib/antialiasing/jitter.glsl"
 #endif
@@ -139,11 +138,10 @@ void main() {
     sunVec = GetSunVector();
 
     #ifdef TAA
-        // Render Scale: every gbuffers program is jittered, so the upscaler (taau.glsl) can rebuild it
         if (RENDER_SCALE_M < 1.0) gl_Position.xy = TAAJitter(gl_Position.xy, gl_Position.w);
     #endif
 
-    DoRenderScale(gl_Position); // Render Scale, see common.glsl
+    DoRenderScale(gl_Position);
 }
 
 #endif

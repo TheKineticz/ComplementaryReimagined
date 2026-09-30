@@ -439,7 +439,7 @@ void main() {
         if (mat == 10049) mat = 32001; // Cauldron Water
     #endif
 
-    DoRenderScale(gl_Position); // Render Scale, see common.glsl
+    DoRenderScale(gl_Position);
 }
 
 #endif

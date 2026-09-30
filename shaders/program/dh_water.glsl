@@ -239,7 +239,7 @@ void main() {
 
     glColor = gl_Color;
 
-    DoRenderScale(gl_Position); // Render Scale, see common.glsl
+    DoRenderScale(gl_Position);
 }
 
 #endif

@@ -577,13 +577,9 @@
     #endif
 
 //Define Handling//
-    // Render Scale: everything up to the TAA pass renders into the bottom-left RENDER_SCALE_M part of the render
-    // targets (gbuffers scale gl_Position, deferred/composite passes use scale.<pass> in shaders.properties), and
-    // TAA upscales it to the full screen. Screen UVs (0-1 across the screen) and buffer UVs of the scaled image
-    // are converted with the macros below; at 1.0 they are exact no-ops. Iris only: OptiFine's scale.<pass> doesn't
-    // match Iris'. RENDER_SCALE_PCT is in percent so the preprocessor can compare it.
+    // Render Scale
     #if defined IS_IRIS && RENDER_SCALE_PCT < 100 && defined TAA
-        #define TAAU 1 // Internal flag, not a boolean option. Keep shaders.properties in sync.
+        #define TAAU 1
         #if RENDER_SCALE_PCT == 50
             #define RENDER_SCALE_M 0.50
         #elif RENDER_SCALE_PCT == 67
@@ -591,12 +587,8 @@
         #elif RENDER_SCALE_PCT == 75
             #define RENDER_SCALE_M 0.75
         #endif
-        // The upscaler needs full jitter, and it weighs its history itself (taau.glsl), so smoothing does not apply.
-        // Iris reads menus from the unprocessed shaders.properties, so the two options can't be hidden while
-        // Render Scale is on; their descriptions say Render Scale sets them.
         #define TAA_JITTER_M 3
         #define TAA_SMOOTHING_M 3
-        // Compensate for the coarser derivatives of the scaled render when choosing material texture mips.
         #define texture2DMaterial(sampler, uv) texture2D(sampler, uv, log2(RENDER_SCALE_M))
     #else
         #define RENDER_SCALE_M 1.0
@@ -604,24 +596,22 @@
         #define TAA_SMOOTHING_M TAA_SMOOTHING
         #define texture2DMaterial(sampler, uv) texture2D(sampler, uv)
     #endif
-    // Constant at 1.0, so everything below folds away exactly when Render Scale is off
-    #define scaledViewSize (RENDER_SCALE_M < 1.0 ? ivec2(vec2(viewWidth, viewHeight) * RENDER_SCALE_M) : ivec2(viewWidth, viewHeight)) // same rounding as Iris's scaled viewport
-    // The same as floats. At 1.0 it is the original vec2(viewWidth, viewHeight), without a round trip through ints
+
+    #define scaledViewSize (RENDER_SCALE_M < 1.0 ? ivec2(vec2(viewWidth, viewHeight) * RENDER_SCALE_M) : ivec2(viewWidth, viewHeight))
     #define scaledViewSizeF (RENDER_SCALE_M < 1.0 ? vec2(scaledViewSize) : vec2(viewWidth, viewHeight))
-    #define renderScaleV (RENDER_SCALE_M < 1.0 ? vec2(scaledViewSize) / vec2(viewWidth, viewHeight) : vec2(1.0)) // the fraction actually covered
-    // Clamped to the last rendered texel: past it lies the unused part of the targets, where clamp-to-edge used to be
+    #define renderScaleV (RENDER_SCALE_M < 1.0 ? vec2(scaledViewSize) / vec2(viewWidth, viewHeight) : vec2(1.0))
+
     #define ToBufferUV(uv) (RENDER_SCALE_M < 1.0 ? min(uv, 1.0 - 0.5 / vec2(scaledViewSize)) * renderScaleV : (uv))
     #define ToScreenUV(uv) ((uv) / renderScaleV)
-    // LOD depth textures: Voxy sizes its own (vxDepthTex*) to the scaled image (renderScale in voxy.json), so they take
-    // screen UVs as they are. Distant Horizons' (dhDepthTex*) are full size like depthtex0, with the image bottom-left.
+
+    // Voxy depth buffers are already scaled
     #ifdef VOXY
         #define LodBufferUV(uv) (uv)
     #else
         #define LodBufferUV(uv) ToBufferUV(uv)
     #endif
     #define DoRenderScale(pos) pos.xy = pos.xy * renderScaleV + (renderScaleV - 1.0) * pos.w
-    // Geometry just off screen lands beyond the scaled image, where nothing reads it. return rather than discard,
-    // which would turn off early depth testing.
+    // Avoid discard to preserve early depth testing
     #define RenderScaleSkipOutside() if (RENDER_SCALE_M < 1.0 && any(greaterThanEqual(gl_FragCoord.xy, vec2(scaledViewSize)))) return
 
     #ifdef OVERWORLD

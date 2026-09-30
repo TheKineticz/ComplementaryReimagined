@@ -61,7 +61,7 @@ vec4 GetVolumetricLight(inout float vlFactor, vec3 translucentMult, float lViewP
             float entityLinearDepth = texture2D(colortex13, ToBufferUV(texCoord)).r;
                   entityLinearDepth = entityLinearDepth == 0.0 ? 1000000.0 : pow2(entityLinearDepth) * far;
         #else
-            float entityLinearDepth = 1000000.0; // Voxy programs have no texCoord (fixes End Voxy water not compiling)
+            float entityLinearDepth = 1000000.0; // Voxy programs have no texCoord
         #endif
     #endif
 
@@ -292,7 +292,7 @@ vec4 GetVolumetricLight(inout float vlFactor, vec3 translucentMult, float lViewP
 
 // ============================== Step 4: Calculate factor of Scene Aware Light Shafts ============================== //
     #if defined OVERWORLD && LIGHTSHAFT_BEHAVIOUR == 1 && SHADOW_QUALITY >= 1 && defined COMPOSITE1
-        if (all(equal(ivec2(gl_FragCoord.xy), scaledViewSize - 1))) { // top right pixel stores vlFactor
+        if (all(equal(ivec2(gl_FragCoord.xy), scaledViewSize - 1))) {
             if (frameCounter % int(0.06666 / frameTimeSmooth + 0.5) == 0) { // Change speed is not too different above 10 fps
                 int salsX = 5;
                 int salsY = 5;

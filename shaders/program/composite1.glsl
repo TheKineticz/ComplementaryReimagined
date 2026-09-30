@@ -335,7 +335,7 @@ void main() {
     // supposed to be #if defined LIGHTSHAFTS_ACTIVE && (LIGHTSHAFT_BEHAVIOUR == 1 && SHADOW_QUALITY >= 1 || defined END)
     #if LIGHTSHAFT_QUALI_DEFINE > 0 && LIGHTSHAFT_BEHAVIOUR == 1 && SHADOW_QUALITY >= 1 && defined OVERWORLD || defined END
         #if LENSFLARE_MODE > 0 || defined ENTITY_TAA_NOISY_CLOUD_FIX || defined TAAU && defined CLOUDS_REIMAGINED
-            if (any(notEqual(ivec2(gl_FragCoord.xy), scaledViewSize - 1))) // not the top right pixel, which stores vlFactor
+            if (any(notEqual(ivec2(gl_FragCoord.xy), scaledViewSize - 1)))
                 vlFactorM = texelFetch(colortex5, texelCoord, 0).a;
         #endif
 

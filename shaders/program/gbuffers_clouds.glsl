@@ -184,7 +184,7 @@ void main() {
         #endif
     #endif
 
-    DoRenderScale(gl_Position); // Render Scale, see common.glsl
+    DoRenderScale(gl_Position);
 }
 
 #endif

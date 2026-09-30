@@ -65,7 +65,6 @@ float GetLinearDepth(float depth, float far, float near) {
         return pow2(vec2(cos(n), sin(n)) * x / s);
     }
 
-    // lodDepth: depthtex is a LOD depth texture, read with LodBufferUV (common.glsl)
     float GetAmbientOcclusion(sampler2D depthtex, bool lodDepth, float z0, float linearZ0, float dither, float farM, float nearM, float aoWorldRange) {
         if (z0 < 0.56) return 1.0;
         float ao = 0.0;
@@ -157,7 +156,7 @@ float GetLinearDepth(float depth, float far, float near) {
                 pos = pos / pos.w * 0.5 + 0.5;
 
                 #ifdef TAAU
-                    pos.xy = TAAJitter(pos.xy, 0.5); // Project the ray back into the jittered depth image.
+                    pos.xy = TAAJitter(pos.xy, 0.5);
                 #endif
                 if (pos.x < 0.0 || pos.x > 1.0 || pos.y < 0.0 || pos.y > 1.0) break;
 
@@ -226,7 +225,6 @@ float GetLinearDepth(float depth, float far, float near) {
     #include "/lib/misc/distantLightBokeh.glsl"
 
     vec3 GetDistantLightBokehSample(ivec2 coord) {
-        // texelFetch does not clamp to the scaled viewport. The next pixel can be unused HDR data.
         if (RENDER_SCALE_M < 1.0) coord = clamp(coord, ivec2(0), scaledViewSize - 1);
         return texelFetch(colortex0, coord, 0).rgb;
     }

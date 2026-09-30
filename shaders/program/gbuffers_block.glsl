@@ -322,7 +322,7 @@ void main() {
         vTexCoordAM.xy  = min(texCoord, midCoord - texMinMidCoord);
     #endif
 
-    DoRenderScale(gl_Position); // Render Scale, see common.glsl
+    DoRenderScale(gl_Position);
 }
 
 #endif

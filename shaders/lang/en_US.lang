@@ -292,7 +292,7 @@ value.COLORED_LIGHTING.768=§4§l§n§o24 Chunks §r§c[-]
 value.COLORED_LIGHTING.1024=§4§k-§r§4§l§n§o32 Chunks§r§4§k- §r§c[-]
 
 option.RENDER_SCALE_PCT=Render Scale
-option.RENDER_SCALE_PCT.comment=Renders the world at a lower resolution, then uses the Temporal Filter to rebuild a sharp full resolution image, similar to FSR or DLSS. §a[+]§r Large performance boost, especially at high screen resolutions. §c[-]§r Slightly softer image, mostly noticeable on fine distant details and during fast movement. §e[*]§r This feature only works when Temporal Filtering is Enabled. §e[*]§r This feature only works on Iris.
+option.RENDER_SCALE_PCT.comment=Renders the world at a lower resolution and uses the Temporal Filter to upscale the image. §a[+]§r Improves performance, especially at high screen resolutions. §c[-]§r Can reduce image clarity, especially on distant details and during movement. §e[*]§r Requires Temporal Filtering. §e[*]§r This feature only works on Iris.
 value.RENDER_SCALE_PCT.100=§cNative
 value.RENDER_SCALE_PCT.75=§eQuality
 value.RENDER_SCALE_PCT.67=§eBalanced
@@ -712,13 +712,13 @@ value.TAA_DEFINE.0=§cOFF [-]
 value.TAA_DEFINE.1=ON §a[+]
 
 option.TAA_SMOOTHING=Temporal Smoothing
-option.TAA_SMOOTHING.comment=Adjusts the amount of smoothing that the Temporal Filter will apply. Higher values produce a blurrier image but reduce flickering and graining. The difference won't be noticeable when standing still. §e[*]§r Render Scale sets this for you while it is on.
+option.TAA_SMOOTHING.comment=Adjusts the amount of smoothing that the Temporal Filter will apply. Higher values produce a blurrier image but reduce flickering and graining. The difference won't be noticeable when standing still. §e[*]§r This setting has no effect when Render Scale is below Native.
 value.TAA_SMOOTHING.2=Low
 value.TAA_SMOOTHING.3=Medium
 value.TAA_SMOOTHING.4=High
 
 option.TAA_JITTER=Temporal Jitter §e[*]§r
-option.TAA_JITTER.comment=Jittering helps the Temporal Filter to better anti-aliase the image, but has some drawbacks. §e[*]§r Higher values will improve anti-aliasing, but will also cause a lot of flickering and blur at the same time. §e[*]§r High Temporal Smoothing is recommended with Full jitter. §c[-]§r Turning jitter off will eliminate anti-aliasing benefits. §e[*]§r Render Scale sets this for you while it is on.
+option.TAA_JITTER.comment=Jittering helps the Temporal Filter to better anti-aliase the image, but has some drawbacks. §e[*]§r Higher values will improve anti-aliasing, but will also cause a lot of flickering and blur at the same time. §e[*]§r High Temporal Smoothing is recommended with Full jitter. §c[-]§r Turning jitter off will eliminate anti-aliasing benefits. §e[*]§r Render Scale below Native always uses Full jitter.
 value.TAA_JITTER.0=OFF §c[-]
 value.TAA_JITTER.1=Low
 value.TAA_JITTER.2=Medium

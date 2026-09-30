@@ -99,7 +99,6 @@ vec4 GetReflection(inout vec3 normalM, vec3 viewPos, vec3 nViewPos, vec3 playerP
                 refPos = nvec3(gbufferProjection * vec4(viewPosRT, 1.0)) * 0.5 + 0.5;
                 if (abs(refPos.x - 0.5) > rEdge.x || abs(refPos.y - 0.5) > rEdge.y) break;
 
-                // In Voxy's programs depthtex is the LOD depth (vxDepthTexOpaque)
                 #ifdef VOXY_PATCH
                     sampleDepth = texture2D(depthtex, LodBufferUV(refPos.xy)).r;
                 #else
@@ -205,7 +204,6 @@ vec4 GetReflection(inout vec3 normalM, vec3 viewPos, vec3 nViewPos, vec3 playerP
 
                         vec2 refPosBuffer = refPos.xy;
                         if (RENDER_SCALE_M < 1.0) {
-                            // Render Scale: same blur in screen terms, and keep the mip footprint inside the rendered area
                             lod = max(lod + log2(RENDER_SCALE_M), 0.0);
                             refPosBuffer = ScaledBufferLodUV(colortex5, refPos.xy, lod);
                         }
