@@ -23,12 +23,8 @@ mat2 inverseM(mat2 m) {
 vec4 textureAF(sampler2D texSampler, vec2 uv) {
     vec2 spriteDimensions = vec2(spriteBounds.z - spriteBounds.x, spriteBounds.w - spriteBounds.y);
 
-    mat2 derivatives = mat2(dFdx(uv), dFdy(uv));
-    #ifdef TAAU
-        // Match the sharper material mip footprint, including the anisotropic sampling span.
-        derivatives *= RENDER_SCALE_M;
-    #endif
-    mat2 J = inverseM(derivatives);
+    // Match the sharper material mip footprint, including the anisotropic sampling span.
+    mat2 derivatives = mat2(dFdx(uv), dFdy(uv)) * RENDER_SCALE_M;
     J = transpose(J)*J;
     float d = manualDeterminant(J), t = J[0][0]+J[1][1],
           D = sqrt(abs(t*t-4.001*d)), // using 4.001 instead of 4.0 fixes a rare texture glitch with square texture atlas
