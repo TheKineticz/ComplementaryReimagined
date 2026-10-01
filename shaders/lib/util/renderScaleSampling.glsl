@@ -23,9 +23,4 @@
         }
         return bufferUV;
     }
-
-    vec4 SampleScaledBufferLod(sampler2D source, vec2 uv, float lod) {
-        vec2 bufferUV = ScaledBufferLodUV(source, uv, lod);
-        return texture2DLod(source, bufferUV, lod);
-    }
 #endif

@@ -8,19 +8,19 @@
 //////////Fragment Shader//////////Fragment Shader//////////Fragment Shader//////////
 #ifdef FRAGMENT_SHADER
 
-#if WORLD_BLUR > 0
-    noperspective in vec2 texCoord;
+noperspective in vec2 texCoord;
 
+#ifdef TAAU_WORLD_BLUR
     flat in vec3 upVec, sunVec;
 #endif
 
 //Pipeline Constants//
-#if WORLD_BLUR > 0 && !defined TAAU_WORLD_BLUR
+#ifdef TAAU_WORLD_BLUR
     const bool colortex0MipmapEnabled = true;
 #endif
 
 //Common Variables//
-#if WORLD_BLUR > 0
+#ifdef TAAU_WORLD_BLUR
     float SdotU = dot(sunVec, upVec);
     float sunFactor = SdotU < 0.0 ? clamp(SdotU + 0.375, 0.0, 0.75) / 0.75 : clamp(SdotU + 0.03125, 0.0, 0.0625) / 0.0625;
 #endif
@@ -28,20 +28,20 @@
 //Common Functions//
 
 //Includes//
-#if WORLD_BLUR > 0 && !defined TAAU_WORLD_BLUR
+#ifdef TAAU_WORLD_BLUR
     #include "/lib/misc/worldBlur.glsl"
-#endif
-#if WORLD_BLUR > 0 && defined BLOOM_FOG_COMPOSITE3
-    #include "/lib/atmospherics/fog/bloomFog.glsl"
+    #include "/lib/util/approxTonemap.glsl"
 #endif
 
 //Program//
 void main() {
-    vec3 color = texelFetch(colortex0, texelCoord, 0).rgb;
+    #ifdef TAAU_WORLD_BLUR
+        // World blur after TAAU, from composite6's linear copy of the upscaled image
+        vec3 color = texelFetch(colortex3, texelCoord, 0).rgb;
 
-    #if WORLD_BLUR > 0
-        float z1 = texelFetch(depthtex1, texelCoord, 0).r;
-        float z0 = texelFetch(depthtex0, texelCoord, 0).r;
+        vec2 depthUV = ToBufferUV(texCoord);
+        float z1 = texture2D(depthtex1, depthUV).r;
+        float z0 = texture2D(depthtex0, depthUV).r;
 
         vec4 screenPos = vec4(texCoord, z0, 1.0);
         vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
@@ -50,11 +50,11 @@ void main() {
 
         #if defined DISTANT_HORIZONS || defined VOXY
             #ifdef DISTANT_HORIZONS
-                float z0lod = texelFetch(dhDepthTex, texelCoord, 0).r;
+                float z0lod = texture2D(dhDepthTex, LodBufferUV(texCoord)).r;
                 vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
                 vec4 viewPosLod = dhProjectionInverse * (screenPosLod * 2.0 - 1.0);
             #elif defined VOXY
-                float z0lod = texelFetch(vxDepthTexTrans, texelCoord, 0).r;
+                float z0lod = texture2D(vxDepthTexTrans, LodBufferUV(texCoord)).r;
                 vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
                 vec4 viewPosLod = vxProjInv * (screenPosLod * 2.0 - 1.0);
             #endif
@@ -62,21 +62,14 @@ void main() {
             lViewPos = min(lViewPos, length(viewPosLod.xyz));
         #endif
 
-        #ifndef TAAU_WORLD_BLUR
-            DoWorldBlur(color, z1, lViewPos);
-        #endif
+        vec3 dof;
+        if (DoWorldBlur(dof, z1, lViewPos)) color = RedoTonemapApprox(dof);
 
-        #ifdef BLOOM_FOG_COMPOSITE3
-            color *= GetBloomFog(lViewPos); // Reminder: Bloom Fog can move between composite1-3
-        #endif
-    #endif
-
-    #ifdef TAAU_BLOOM
-        /* RENDERTARGETS:11 */
+        /* DRAWBUFFERS:3 */
+        gl_FragData[0] = vec4(color, 1.0);
     #else
-        /* DRAWBUFFERS:0 */
+        discard;
     #endif
-    gl_FragData[0] = vec4(color, 1.0);
 }
 
 #endif
@@ -84,9 +77,9 @@ void main() {
 //////////Vertex Shader//////////Vertex Shader//////////Vertex Shader//////////
 #ifdef VERTEX_SHADER
 
-#if WORLD_BLUR > 0
-    noperspective out vec2 texCoord;
+noperspective out vec2 texCoord;
 
+#ifdef TAAU_WORLD_BLUR
     flat out vec3 upVec, sunVec;
 #endif
 
@@ -102,8 +95,9 @@ void main() {
 void main() {
     gl_Position = ftransform();
 
-    #if WORLD_BLUR > 0
-        texCoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
+    texCoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
+
+    #ifdef TAAU_WORLD_BLUR
         upVec = normalize(gbufferModelView[1].xyz);
         sunVec = GetSunVector();
     #endif

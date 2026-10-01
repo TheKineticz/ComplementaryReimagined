@@ -45,6 +45,9 @@ float GetLinearDepth(float depth) {
     #define LENS_FLARE_VISIBILITY lensFlareVisibility
     #include "/lib/misc/lensFlare.glsl"
 #endif
+#ifdef TAAU_WORLD_BLUR
+    #include "/lib/util/approxTonemap.glsl"
+#endif
 
 //Program//
 void main() {
@@ -76,6 +79,12 @@ void main() {
     /* DRAWBUFFERS:32 */
     gl_FragData[0] = vec4(color, 1.0);
     gl_FragData[1] = vec4(temp, tempAlpha);
+
+    #ifdef TAAU_WORLD_BLUR
+        // Source for the world blur pass, which needs mipmaps of the linear image
+        /* DRAWBUFFERS:320 */
+        gl_FragData[2] = vec4(UndoTonemapApprox(color), 1.0);
+    #endif
 }
 
 #endif
