@@ -309,29 +309,27 @@ void main() {
             /* DRAWBUFFERS:03648 */
             gl_FragData[3] = vec4(mat3(gbufferModelViewInverse) * normalM, sqrt(fresnelM * color.a * fogAlpha));
             gl_FragData[4] = vec4(reflection.rgb * fresnelM * color.a * fogAlpha, reflection.a);
+
+            #ifdef TAAU
+                /* RENDERTARGETS: 0,3,6,4,8,10 */
+                gl_FragData[5] = taauReflection;
+            #endif
+        #elif defined TAAU
+            /* RENDERTARGETS: 0,3,6,10 */
+            gl_FragData[3] = taauReflection;
         #endif
     #elif WORLD_SPACE_REFLECTIONS > 0
         /* DRAWBUFFERS:0348 */
         gl_FragData[2] = vec4(mat3(gbufferModelViewInverse) * normalM, sqrt(fresnelM * color.a * fogAlpha));
         gl_FragData[3] = vec4(reflection.rgb * fresnelM * color.a * fogAlpha, reflection.a);
-    #endif
 
-    #ifdef TAAU
-        #if DETAIL_QUALITY >= 3 || (WATER_REFLECT_QUALITY > 0 && WORLD_SPACE_REFLECTIONS > 0)
-            #if WORLD_SPACE_REFLECTIONS > 0
-                /* RENDERTARGETS: 0,3,6,4,8,10 */
-                gl_FragData[5] = taauReflection;
-            #else
-                /* RENDERTARGETS: 0,3,6,10 */
-                gl_FragData[3] = taauReflection;
-            #endif
-        #elif WORLD_SPACE_REFLECTIONS > 0
+        #ifdef TAAU
             /* RENDERTARGETS: 0,3,4,8,10 */
             gl_FragData[4] = taauReflection;
-        #else
-            /* RENDERTARGETS: 0,3,10 */
-            gl_FragData[2] = taauReflection;
         #endif
+    #elif defined TAAU
+        /* RENDERTARGETS: 0,3,10 */
+        gl_FragData[2] = taauReflection;
     #endif
 }
 
