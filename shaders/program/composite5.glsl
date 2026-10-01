@@ -17,7 +17,7 @@ noperspective in vec2 texCoord;
 //Pipeline Constants//
 
 //Common Variables//
-#if defined TAAU_BLOOM && MOTION_BLUR_EFFECT != 1
+#ifdef TAAU_BLOOM
     uniform sampler2D colortex11;
     #define sceneTex colortex11
 #else
