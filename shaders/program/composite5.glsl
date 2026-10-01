@@ -160,7 +160,7 @@ void DoBSLColorSaturation(inout vec3 color) {
     #include "/lib/util/dither.glsl"
 #endif
 
-#if LENSFLARE_MODE > 0 && defined OVERWORLD
+#if LENSFLARE_MODE > 0 && defined OVERWORLD && !defined TAAU_LENS_FLARE
     #include "/lib/misc/lensFlare.glsl"
 #endif
 
@@ -193,7 +193,7 @@ void DoColorProcessing(inout vec3 color, vec3 viewPos, float dither) {
         }
     #endif
 
-    #if LENSFLARE_MODE > 0 && defined OVERWORLD
+    #if LENSFLARE_MODE > 0 && defined OVERWORLD && !defined TAAU_LENS_FLARE
         DoLensFlare(color, viewPos, dither);
     #endif
 

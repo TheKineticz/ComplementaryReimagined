@@ -649,6 +649,13 @@
         #define TAAU_BLOOM
     #endif
 
+    // Screen-space effects that run after TAAU, at output resolution, to keep them out of its history
+    #ifdef TAAU
+        #if LENSFLARE_MODE > 0 && defined OVERWORLD
+            #define TAAU_LENS_FLARE
+        #endif
+    #endif
+
     #if BLOOM_ENABLED == -1
         #undef BLOOM_FOG
     #endif

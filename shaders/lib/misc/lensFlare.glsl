@@ -36,12 +36,7 @@ float RingLens(vec2 lightPos, float size, float distA, float distB) {
     return lensFlare;
 }
 
-vec2 lensFlareCheckOffsets[4] = vec2[4](
-    vec2( 1.0,0.0),
-    vec2(-1.0,1.0),
-    vec2( 0.0,1.0),
-    vec2( 1.0,1.0)
-);
+#include "/lib/misc/lensFlareVisibility.glsl"
 
 void DoLensFlare(inout vec3 color, vec3 viewPos, float dither) {
     #if LENSFLARE_MODE == 1 || LENSFLARE_MODE == 3
@@ -53,27 +48,11 @@ void DoLensFlare(inout vec3 color, vec3 viewPos, float dither) {
     vec2 lightPos = lightPos3.xy;
     vec3 screenPosSun = lightPos3 + 0.5;
 
-    float flareFactor = 1.0;
-    vec2 cScale = 40.0 / vec2(viewWidth, viewHeight);
-    for (int i = 0; i < 4; i++) {
-        vec2 cOffset = (lensFlareCheckOffsets[i] - dither) * cScale;
-        vec2 checkCoord1 = screenPosSun.xy + cOffset;
-        vec2 checkCoord2 = screenPosSun.xy - cOffset;
-
-        float zSample1 = texture2D(depthtex0, ToBufferUV(checkCoord1)).r;
-        float zSample2 = texture2D(depthtex0, ToBufferUV(checkCoord2)).r;
-        #ifdef VL_CLOUDS_ACTIVE
-            float cloudLinearDepth1 = texture2D(colortex5, ToBufferUV(checkCoord1)).a;
-            float cloudLinearDepth2 = texture2D(colortex5, ToBufferUV(checkCoord2)).a;
-            zSample1 = min(zSample1, cloudLinearDepth1);
-            zSample2 = min(zSample2, cloudLinearDepth2);
-        #endif
-
-        if (zSample1 < 1.0)
-            flareFactor -= 0.125;
-        if (zSample2 < 1.0)
-            flareFactor -= 0.125;
-    }
+    #ifdef LENS_FLARE_VISIBILITY
+        float flareFactor = LENS_FLARE_VISIBILITY;
+    #else
+        float flareFactor = GetLensFlareVisibility(screenPosSun.xy, dither);
+    #endif
 
     float str = length(lightPos * vec2(aspectRatio, 1.0));
     str = pow(clamp(str * 8.0, 0.0, 1.0), 2.0) - clamp(str * 3.0 - 1.5, 0.0, 1.0);

@@ -10,6 +10,11 @@
 
 noperspective in vec2 texCoord;
 
+#ifdef TAAU_LENS_FLARE
+    flat in vec3 upVec, sunVec;
+    flat in float lensFlareVisibility;
+#endif
+
 //Pipeline Constants//
 #include "/lib/pipelineSettings.glsl"
 
@@ -17,6 +22,11 @@ const bool colortex3MipmapEnabled = true;
 
 //Common Variables//
 vec2 view = vec2(viewWidth, viewHeight);
+
+#ifdef TAAU_LENS_FLARE
+    float SdotU = dot(sunVec, upVec);
+    float sunFactor = SdotU < 0.0 ? clamp(SdotU + 0.375, 0.0, 0.75) / 0.75 : clamp(SdotU + 0.03125, 0.0, 0.0625) / 0.0625;
+#endif
 
 //Common Functions//
 float GetLinearDepth(float depth) {
@@ -30,6 +40,10 @@ float GetLinearDepth(float depth) {
 #endif
 #ifdef TAAU
     #include "/lib/antialiasing/taau.glsl"
+#endif
+#ifdef TAAU_LENS_FLARE
+    #define LENS_FLARE_VISIBILITY lensFlareVisibility
+    #include "/lib/misc/lensFlare.glsl"
 #endif
 
 //Program//
@@ -45,6 +59,10 @@ void main() {
             // Match TAAU's current-frame position and keep the correction out of history.
             vec3 bloomCorrection = texture2DLod(colortex8, ToBufferUV(TAAJitter(texCoord, 0.5)), 0.0).rgb;
             color = clamp01(color + bloomCorrection);
+        #endif
+
+        #ifdef TAAU_LENS_FLARE
+            DoLensFlare(color, vec3(0.0), 0.0);
         #endif
     #else
         color = texelFetch(colortex3, texelCoord, 0).rgb;
@@ -67,6 +85,11 @@ void main() {
 
 noperspective out vec2 texCoord;
 
+#ifdef TAAU_LENS_FLARE
+    flat out vec3 upVec, sunVec;
+    flat out float lensFlareVisibility;
+#endif
+
 //Attributes//
 
 //Common Variables//
@@ -74,12 +97,29 @@ noperspective out vec2 texCoord;
 //Common Functions//
 
 //Includes//
+#ifdef TAAU_LENS_FLARE
+    #include "/lib/misc/lensFlareVisibility.glsl"
+#endif
 
 //Program//
 void main() {
     gl_Position = ftransform();
 
     texCoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
+
+    #ifdef TAAU_LENS_FLARE
+        upVec = normalize(gbufferModelView[1].xyz);
+        sunVec = GetSunVector();
+
+        // Average the occlusion test over its dither offsets once, as this pass has no TAA to smooth per-pixel dither
+        vec4 clipPosSun = gbufferProjection * vec4(sunVec + 0.001, 1.0);
+        vec2 screenPosSun = clipPosSun.xy / clipPosSun.w * 0.5 + 0.5;
+        lensFlareVisibility = 0.0;
+        for (int i = 0; i < 8; i++) {
+            lensFlareVisibility += GetLensFlareVisibility(screenPosSun, (float(i) + 0.5) / 8.0);
+        }
+        lensFlareVisibility /= 8.0;
+    #endif
 }
 
 #endif
