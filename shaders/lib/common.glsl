@@ -654,9 +654,6 @@
         #if LENSFLARE_MODE > 0 && defined OVERWORLD
             #define TAAU_LENS_FLARE
         #endif
-        #if WORLD_BLUR > 0
-            #define TAAU_WORLD_BLUR
-        #endif
         #if MOTION_BLUR_EFFECT == 1
             #define TAAU_MOTION_BLUR
         #endif
