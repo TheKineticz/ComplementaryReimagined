@@ -1,19 +1,15 @@
-// Needs texCoord and dither.glsl, plus bloomFog.glsl for MOTION_BLUR_BLOOM_FOG_FIX
-// With TAAU this runs after the upscale and mixes the tonemapped image roughly as it would in HDR
-
-#ifdef TAAU
-    #include "/lib/util/approxTonemap.glsl"
-    #define motionBlurTex colortex3
-    #define MotionBlurDecode(color) UndoTonemapApprox(color)
-    #define MotionBlurEncode(color) RedoTonemapApprox(color)
-#else
-    #define motionBlurTex colortex0
-    #define MotionBlurDecode(color) (color)
-    #define MotionBlurEncode(color) (color)
-#endif
+// Needs texCoord and dither.glsl, plus bloomFog.glsl for MOTION_BLUR_BLOOM_FOG_FIX.
+// Always samples HDR colortex0 before bloom and tonemapping; TAAU also needs jitter.glsl for depth.
 
 void DoMotionBlur(inout vec3 color) {
-    float z = texture2D(depthtex1, ToBufferUV(texCoord)).x;
+    #ifdef TAAU
+        vec2 depthCoord = TAAJitter(texCoord, 0.5);
+        ivec2 depthTexel = ScaledTexelCoord(depthCoord);
+    #else
+        vec2 depthCoord = texCoord;
+        ivec2 depthTexel = texelCoord;
+    #endif
+    float z = texture2D(depthtex1, ToBufferUV(depthCoord)).x;
     float dither = Bayer64(gl_FragCoord.xy);
 
     if (z > 0.56) {
@@ -30,11 +26,11 @@ void DoMotionBlur(inout vec3 color) {
 
         #if defined DISTANT_HORIZONS || defined VOXY
             #ifdef DISTANT_HORIZONS
-                float z1lod = texelFetch(dhDepthTex1, texelCoord, 0).r;
+                float z1lod = texelFetch(dhDepthTex1, depthTexel, 0).r;
                 vec4 screenPos1Lod = vec4(texCoord, z1lod, 1.0);
                 vec4 viewPos1Lod = dhProjectionInverse * (screenPos1Lod * 2.0 - 1.0);
             #elif defined VOXY
-                float z1lod = texelFetch(vxDepthTexOpaque, texelCoord, 0).r;
+                float z1lod = texelFetch(vxDepthTexOpaque, depthTexel, 0).r;
                 vec4 screenPos1Lod = vec4(texCoord, z1lod, 1.0);
                 vec4 viewPos1Lod = vxProjInv * (screenPos1Lod * 2.0 - 1.0);
             #endif
@@ -63,7 +59,7 @@ void DoMotionBlur(inout vec3 color) {
         vec2 coord = texCoord - velocity * (float(sampleCount) / 2.0 - 1.0 + dither);
         for (int i = 0; i < sampleCount; i++, coord += velocity) {
             vec2 coordb = clamp(coord, doublePixel, 1.0 - doublePixel);
-            vec3 sampleb = MotionBlurDecode(texture2DLod(motionBlurTex, coordb, 0).rgb);
+            vec3 sampleb = texture2DLod(colortex0, coordb, 0).rgb;
 
             #ifdef MOTION_BLUR_BLOOM_FOG_FIX
                 float z1 = texture2D(depthtex1, coordb).r;
@@ -93,7 +89,7 @@ void DoMotionBlur(inout vec3 color) {
             color += sampleb;
             mbwg += 1.0;
         }
-        color = MotionBlurEncode(color / mbwg);
+        color /= mbwg;
 
         #ifdef MOTION_BLUR_BLOOM_FOG_FIX
             // Reapply bloom fog because we removed it from our samples

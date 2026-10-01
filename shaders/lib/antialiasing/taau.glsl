@@ -21,7 +21,6 @@ const float taauReflectionShare = 0.3;
 const float taauNearHistoryScale = 0.2;
 const float taauHistoryHalfRecoveryDistance = 32.0;
 
-// Reversible tonemap within ~5% of DoCompTonemap, so TAAU accumulates and clips about the displayed values
 const float taauEncodeScale = 1.45 * TM_EXPOSURE;
 
 vec3 TAAUEncode(vec3 c) {

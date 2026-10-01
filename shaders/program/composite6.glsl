@@ -5,6 +5,11 @@
 //Common//
 #include "/lib/common.glsl"
 
+#ifdef TAAU
+    // Enabled only with motion blur: read composite5's HDR output, blur, then apply post-processing.
+    #include "/lib/misc/postProcessing.glsl"
+#else
+
 //////////Fragment Shader//////////Fragment Shader//////////Fragment Shader//////////
 #ifdef FRAGMENT_SHADER
 
@@ -66,5 +71,7 @@ void main() {
 
     texCoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
 }
+
+#endif
 
 #endif
