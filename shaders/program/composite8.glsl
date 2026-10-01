@@ -17,14 +17,14 @@ noperspective in vec2 texCoord;
 //Common Functions//
 
 //Includes//
-#ifdef TAAU_MOTION_BLUR
+#if defined TAAU && MOTION_BLUR_EFFECT == 1
     #include "/lib/util/dither.glsl"
     #include "/lib/misc/motionBlur.glsl"
 #endif
 
 //Program//
 void main() {
-    #ifdef TAAU_MOTION_BLUR
+    #if defined TAAU && MOTION_BLUR_EFFECT == 1
         vec3 color = texelFetch(colortex3, texelCoord, 0).rgb;
         DoMotionBlur(color);
 

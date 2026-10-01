@@ -14,16 +14,13 @@ noperspective in vec2 texCoord;
     flat in vec3 upVec, sunVec;
 #endif
 
+#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAAU
+    flat in float lensFlareVisibility;
+#endif
+
 //Pipeline Constants//
 
 //Common Variables//
-#ifdef TAAU_BLOOM
-    uniform sampler2D colortex11;
-    #define sceneTex colortex11
-#else
-    #define sceneTex colortex0
-#endif
-
 float pw = 1.0 / viewWidth;
 float ph = 1.0 / viewHeight;
 
@@ -160,11 +157,75 @@ void DoBSLColorSaturation(inout vec3 color) {
     #include "/lib/util/dither.glsl"
 #endif
 
-#if LENSFLARE_MODE > 0 && defined OVERWORLD && !defined TAAU_LENS_FLARE
+#ifdef TAAU
+    float GetLinearDepth(float depth) {
+        return (2.0 * near) / (far + near - depth * (far - near));
+    }
+
+    #include "/lib/antialiasing/jitter.glsl"
+    #include "/lib/antialiasing/taa.glsl"
+    #include "/lib/antialiasing/taau.glsl"
+#endif
+
+#if LENSFLARE_MODE > 0 && defined OVERWORLD
+    #ifdef TAAU
+        #define LENS_FLARE_VISIBILITY lensFlareVisibility
+    #endif
     #include "/lib/misc/lensFlare.glsl"
 #endif
 
-void DoColorProcessing(inout vec3 color, vec3 viewPos, float dither) {
+//Program//
+void main() {
+    #ifdef TAAU
+        // Upscale the HDR image first, so everything below runs after TAAU at output resolution.
+        // Depth, materials and bloom tiles are still the jittered render-resolution image.
+        vec3 color, temp;
+        float tempAlpha;
+        DoTAAU(color, temp, tempAlpha);
+        color = TAAUDecode(color);
+        vec2 sceneCoord = TAAJitter(texCoord, 0.5);
+    #else
+        vec3 color = texture2D(colortex0, texCoord).rgb;
+        vec2 sceneCoord = texCoord;
+    #endif
+
+    #if defined BLOOM_FOG || LENSFLARE_MODE > 0 && defined OVERWORLD
+        float z0 = texture2D(depthtex0, ToBufferUV(sceneCoord)).r;
+        vec4 screenPos = vec4(texCoord, z0, 1.0);
+        vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
+        viewPos /= viewPos.w;
+        float lViewPos = length(viewPos.xyz);
+
+        #if defined DISTANT_HORIZONS || defined VOXY
+            #ifdef DISTANT_HORIZONS
+                float z0lod = texelFetch(dhDepthTex, ScaledTexelCoord(sceneCoord), 0).r;
+                vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
+                vec4 viewPosLod = dhProjectionInverse * (screenPosLod * 2.0 - 1.0);
+            #elif defined VOXY
+                float z0lod = texelFetch(vxDepthTexTrans, ScaledTexelCoord(sceneCoord), 0).r;
+                vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
+                vec4 viewPosLod = vxProjInv * (screenPosLod * 2.0 - 1.0);
+            #endif
+            viewPosLod /= viewPosLod.w;
+            lViewPos = min(lViewPos, length(viewPosLod.xyz));
+        #endif
+    #else
+        float lViewPos = 0.0;
+    #endif
+
+    float dither = texture2DLod(noisetex, texCoord * view / 128.0, 0.0).b;
+    #ifdef TAA
+        dither = fract(dither + goldenRatio * mod(float(frameCounter), 3600.0));
+    #endif
+
+    #if defined BLOOM_FOG && !defined TAAU // composite4 removes it before TAAU
+        color /= GetBloomFog(lViewPos);
+    #endif
+
+    #if BLOOM_ENABLED == 1
+        DoBloom(color, sceneCoord, dither, lViewPos);
+    #endif
+
     #ifdef COLORGRADING
         color =
             pow(color.r, GR_RC) * vec3(GR_RR, GR_RG, GR_RB) +
@@ -176,7 +237,7 @@ void DoColorProcessing(inout vec3 color, vec3 viewPos, float dither) {
     DoCompTonemap(color);
 
     #if defined GREEN_SCREEN_LIME || SELECT_OUTLINE == 4
-        int materialMaskInt = int(texelFetch(colortex6, texelCoord, 0).g * 255.1);
+        int materialMaskInt = int(texelFetch(colortex6, ScaledTexelCoord(sceneCoord), 0).g * 255.1);
     #endif
 
     #ifdef GREEN_SCREEN_LIME
@@ -193,71 +254,18 @@ void DoColorProcessing(inout vec3 color, vec3 viewPos, float dither) {
         }
     #endif
 
-    #if LENSFLARE_MODE > 0 && defined OVERWORLD && !defined TAAU_LENS_FLARE
-        DoLensFlare(color, viewPos, dither);
+    #if LENSFLARE_MODE > 0 && defined OVERWORLD
+        DoLensFlare(color, viewPos.xyz, dither);
     #endif
 
     DoBSLColorSaturation(color);
-}
 
-//Program//
-void main() {
-    vec3 color = texelFetch(sceneTex, texelCoord, 0).rgb;
+    /* DRAWBUFFERS:3 */
+    gl_FragData[0] = vec4(color, 1.0);
 
-    #if defined BLOOM_FOG || LENSFLARE_MODE > 0 && defined OVERWORLD
-        float z0 = texture2D(depthtex0, ToBufferUV(texCoord)).r;
-        vec4 screenPos = vec4(texCoord, z0, 1.0);
-        vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
-        viewPos /= viewPos.w;
-        float lViewPos = length(viewPos.xyz);
-
-        #if defined DISTANT_HORIZONS || defined VOXY
-            #ifdef DISTANT_HORIZONS
-                float z0lod = texelFetch(dhDepthTex, texelCoord, 0).r;
-                vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
-                vec4 viewPosLod = dhProjectionInverse * (screenPosLod * 2.0 - 1.0);
-            #elif defined VOXY
-                float z0lod = texelFetch(vxDepthTexTrans, texelCoord, 0).r;
-                vec4 screenPosLod = vec4(texCoord, z0lod, 1.0);
-                vec4 viewPosLod = vxProjInv * (screenPosLod * 2.0 - 1.0);
-            #endif
-            viewPosLod /= viewPosLod.w;
-            lViewPos = min(lViewPos, length(viewPosLod.xyz));
-        #endif
-    #else
-        vec4 viewPos = vec4(0.0);
-        float lViewPos = 0.0;
-    #endif
-
-    float dither = texture2DLod(noisetex, texCoord * scaledViewSizeF / 128.0, 0.0).b;
-    #ifdef TAA
-        dither = fract(dither + goldenRatio * mod(float(frameCounter), 3600.0));
-    #endif
-
-    #ifdef BLOOM_FOG
-        color /= GetBloomFog(lViewPos);
-    #endif
-
-    #ifdef TAAU_BLOOM
-        vec3 baseColor = color;
-        DoColorProcessing(baseColor, viewPos.xyz, dither);
-        baseColor = clamp01(baseColor);
-    #endif
-
-    #if BLOOM_ENABLED == 1
-        DoBloom(color, texCoord, dither, lViewPos);
-    #endif
-
-    DoColorProcessing(color, viewPos.xyz, dither);
-
-    #ifdef TAAU_BLOOM
-        // Reflections no longer need colortex8; reuse its signed format for the bloom correction.
-        /* DRAWBUFFERS:38 */
-        gl_FragData[0] = vec4(baseColor, 1.0);
-        gl_FragData[1] = vec4(clamp01(color) - baseColor, 1.0);
-    #else
-        /* DRAWBUFFERS:3 */
-        gl_FragData[0] = vec4(color, 1.0);
+    #ifdef TAAU
+        /* DRAWBUFFERS:32 */
+        gl_FragData[1] = vec4(temp, tempAlpha);
     #endif
 }
 
@@ -272,6 +280,10 @@ noperspective out vec2 texCoord;
     flat out vec3 upVec, sunVec;
 #endif
 
+#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAAU
+    flat out float lensFlareVisibility;
+#endif
+
 //Attributes//
 
 //Common Variables//
@@ -279,6 +291,9 @@ noperspective out vec2 texCoord;
 //Common Functions//
 
 //Includes//
+#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAAU
+    #include "/lib/misc/lensFlareVisibility.glsl"
+#endif
 
 //Program//
 void main() {
@@ -289,6 +304,17 @@ void main() {
     #if defined BLOOM_FOG || LENSFLARE_MODE > 0 && defined OVERWORLD
         upVec = normalize(gbufferModelView[1].xyz);
         sunVec = GetSunVector();
+    #endif
+
+    #if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAAU
+        // Average the occlusion test over its dither offsets once, as nothing after TAAU smooths per-pixel dither
+        vec4 clipPosSun = gbufferProjection * vec4(sunVec + 0.001, 1.0);
+        vec2 screenPosSun = clipPosSun.xy / clipPosSun.w * 0.5 + 0.5;
+        lensFlareVisibility = 0.0;
+        for (int i = 0; i < 8; i++) {
+            lensFlareVisibility += GetLensFlareVisibility(screenPosSun, (float(i) + 0.5) / 8.0);
+        }
+        lensFlareVisibility /= 8.0;
     #endif
 }
 

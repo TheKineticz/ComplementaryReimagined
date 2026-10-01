@@ -603,6 +603,8 @@
 
     #define ToBufferUV(uv) (RENDER_SCALE_M < 1.0 ? min(uv, 1.0 - 0.5 / vec2(scaledViewSize)) * renderScaleV : (uv))
     #define ToScreenUV(uv) ((uv) / renderScaleV)
+    // Passes after TAAU are full size, but depth and material buffers keep the scaled image
+    #define ScaledTexelCoord(uv) min(ivec2((uv) * scaledViewSizeF), scaledViewSize - 1)
 
     // Voxy depth buffers are already scaled
     #ifdef VOXY
@@ -647,16 +649,6 @@
 
     #if defined TAAU && BLOOM_ENABLED == 1
         #define TAAU_BLOOM
-    #endif
-
-    // Screen-space effects that run after TAAU, at output resolution, to keep them out of its history
-    #ifdef TAAU
-        #if LENSFLARE_MODE > 0 && defined OVERWORLD
-            #define TAAU_LENS_FLARE
-        #endif
-        #if MOTION_BLUR_EFFECT == 1
-            #define TAAU_MOTION_BLUR
-        #endif
     #endif
 
     #if BLOOM_ENABLED == -1
