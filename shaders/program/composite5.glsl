@@ -18,40 +18,35 @@ noperspective in vec2 texCoord;
 
 vec2 view = vec2(viewWidth, viewHeight);
 
-float GetLinearDepth(float depth) {
-    return (2.0 * near) / (far + near - depth * (far - near));
-}
-
 #ifdef TAA
-    #include "/lib/antialiasing/temporalColor.glsl"
-    #include "/lib/antialiasing/taa.glsl"
+    #include "/lib/antialiasing/temporalCommon.glsl"
     #ifdef TAAU
         #include "/lib/antialiasing/jitter.glsl"
         #include "/lib/antialiasing/taau.glsl"
+    #else
+        #include "/lib/antialiasing/taa.glsl"
     #endif
 #endif
 
 void main() {
     #ifdef TAAU
-        vec3 color, temp;
-        float tempAlpha;
-        DoTAAU(color, temp, tempAlpha);
-        color = TAADecode(color);
+        vec4 history = DoTAAU();
+        vec3 color = TAADecode(history.rgb);
     #else
         vec3 color = texelFetch(colortex0, texelCoord, 0).rgb;
         #ifdef TAA
             color = TAAEncode(color);
             vec3 temp = vec3(0.0);
-            float tempAlpha = 1.0;
             float z1 = texelFetch(depthtex1, texelCoord, 0).r;
             DoTAA(color, temp, z1);
+            vec4 history = vec4(temp, 1.0);
             color = TAADecode(color);
         #endif
     #endif
 
     #ifdef TAA
         /* DRAWBUFFERS:02 */
-        gl_FragData[1] = vec4(temp, tempAlpha);
+        gl_FragData[1] = history;
     #else
         /* DRAWBUFFERS:0 */
     #endif

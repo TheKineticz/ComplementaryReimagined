@@ -27,81 +27,9 @@
     float farEdgeDist = 96.0;
 #endif
 
-#if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
-    //Catmull-Rom sampling from Filmic SMAA presentation
-    vec3 textureCatmullRom(sampler2D colortex, vec2 texcoord, vec2 view) {
-        vec2 position = texcoord * view;
-        vec2 centerPosition = floor(position - 0.5) + 0.5;
-        vec2 f = position - centerPosition;
-        vec2 f2 = f * f;
-        vec2 f3 = f * f2;
-
-        float c = 0.7;
-        vec2 w0 =        -c  * f3 +  2.0 * c         * f2 - c * f;
-        vec2 w1 =  (2.0 - c) * f3 - (3.0 - c)        * f2         + 1.0;
-        vec2 w2 = -(2.0 - c) * f3 + (3.0 -  2.0 * c) * f2 + c * f;
-        vec2 w3 =         c  * f3 -                c * f2;
-
-        vec2 w12 = w1 + w2;
-        vec2 tc12 = (centerPosition + w2 / w12) / view;
-
-        vec2 tc0 = (centerPosition - 1.0) / view;
-        vec2 tc3 = (centerPosition + 2.0) / view;
-        vec4 color = vec4(texture2DLod(colortex, vec2(tc12.x, tc0.y ), 0).rgb, 1.0) * (w12.x * w0.y ) +
-                    vec4(texture2DLod(colortex, vec2(tc0.x,  tc12.y), 0).rgb, 1.0) * (w0.x  * w12.y) +
-                    vec4(texture2DLod(colortex, vec2(tc12.x, tc12.y), 0).rgb, 1.0) * (w12.x * w12.y) +
-                    vec4(texture2DLod(colortex, vec2(tc3.x,  tc12.y), 0).rgb, 1.0) * (w3.x  * w12.y) +
-                    vec4(texture2DLod(colortex, vec2(tc12.x, tc3.y ), 0).rgb, 1.0) * (w12.x * w3.y );
-        return color.rgb / color.a;
-    }
-#endif
-
-// Previous frame reprojection from Chocapic13
-vec2 Reprojection(vec4 viewPos1) {
-    vec4 pos = gbufferModelViewInverse * viewPos1;
-    vec4 previousPosition = pos + vec4(cameraPosition - previousCameraPosition, 0.0);
-    previousPosition = gbufferPreviousModelView * previousPosition;
-    previousPosition = gbufferPreviousProjection * previousPosition;
-    return previousPosition.xy / previousPosition.w * 0.5 + 0.5;
+float GetLinearDepth(float depth) {
+    return (2.0 * near) / (far + near - depth * (far - near));
 }
-vec2 Reprojection(vec3 pos, mat4 projectionInverse, mat4 previousProjection) {
-	pos = pos * 2.0 - 1.0;
-
-	vec4 viewPosPrev = projectionInverse * vec4(pos, 1.0);
-	viewPosPrev /= viewPosPrev.w;
-	viewPosPrev = gbufferModelViewInverse * viewPosPrev;
-
-	vec4 previousPosition = viewPosPrev + vec4(cameraPosition - previousCameraPosition, 0.0);
-	previousPosition = gbufferPreviousModelView * previousPosition;
-	previousPosition = previousProjection * previousPosition;
-	return previousPosition.xy / previousPosition.w * 0.5 + 0.5;
-}
-
-vec3 ClipAABB(vec3 q, vec3 aabb_min, vec3 aabb_max){
-    vec3 p_clip = 0.5 * (aabb_max + aabb_min);
-    vec3 e_clip = 0.5 * (aabb_max - aabb_min) + 0.00000001;
-
-    vec3 v_clip = q - vec3(p_clip);
-    vec3 v_unit = v_clip.xyz / e_clip;
-    vec3 a_unit = abs(v_unit);
-    float ma_unit = max(a_unit.x, max(a_unit.y, a_unit.z));
-
-    if (ma_unit > 1.0)
-        return vec3(p_clip) + v_clip / ma_unit;
-    else
-        return q;
-}
-
-ivec2 neighbourhoodOffsets[8] = ivec2[8](
-    ivec2( 1, 1),
-    ivec2( 1,-1),
-    ivec2(-1, 1),
-    ivec2(-1,-1),
-    ivec2( 1, 0),
-    ivec2( 0, 1),
-    ivec2(-1, 0),
-    ivec2( 0,-1)
-);
 
 void NeighbourhoodClamping(vec3 color, inout vec3 tempColor, float z0, float z1, inout float edge) {
     vec3 minclr = color; vec3 maxclr = minclr;
@@ -194,11 +122,7 @@ void DoTAA(inout vec3 color, inout vec3 temp, float z1) {
         }
 	#endif
 
-    #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
-        vec3 tempColor = textureCatmullRom(colortex2, prvCoord, view);
-    #else
-        vec3 tempColor = texture2D(colortex2, prvCoord).rgb;
-    #endif
+    vec3 tempColor = SampleHistory(prvCoord);
 
     if (tempColor == vec3(0.0) || any(isnan(tempColor))) { // Fixes the first frame and nans
         temp = color;
