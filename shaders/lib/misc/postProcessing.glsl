@@ -14,10 +14,6 @@ noperspective in vec2 texCoord;
     flat in vec3 upVec, sunVec;
 #endif
 
-#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAA
-    flat in float lensFlareVisibility;
-#endif
-
 //Pipeline Constants//
 
 //Common Variables//
@@ -162,9 +158,6 @@ void DoBSLColorSaturation(inout vec3 color) {
 #endif
 
 #if LENSFLARE_MODE > 0 && defined OVERWORLD
-    #ifdef TAA
-        #define LENS_FLARE_VISIBILITY lensFlareVisibility
-    #endif
     #include "/lib/misc/lensFlare.glsl"
 #endif
 
@@ -263,10 +256,6 @@ noperspective out vec2 texCoord;
     flat out vec3 upVec, sunVec;
 #endif
 
-#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAA
-    flat out float lensFlareVisibility;
-#endif
-
 //Attributes//
 
 //Common Variables//
@@ -274,10 +263,6 @@ noperspective out vec2 texCoord;
 //Common Functions//
 
 //Includes//
-#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAA
-    #include "/lib/misc/lensFlareVisibility.glsl"
-#endif
-
 //Program//
 void main() {
     gl_Position = ftransform();
@@ -287,17 +272,6 @@ void main() {
     #if defined BLOOM_FOG || LENSFLARE_MODE > 0 && defined OVERWORLD
         upVec = normalize(gbufferModelView[1].xyz);
         sunVec = GetSunVector();
-    #endif
-
-    #if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAA
-        // Average occlusion here because lens flare now follows both temporal paths.
-        vec4 clipPosSun = gbufferProjection * vec4(sunVec + 0.001, 1.0);
-        vec2 screenPosSun = clipPosSun.xy / clipPosSun.w * 0.5 + 0.5;
-        lensFlareVisibility = 0.0;
-        for (int i = 0; i < 8; i++) {
-            lensFlareVisibility += GetLensFlareVisibility(screenPosSun, (float(i) + 0.5) / 8.0);
-        }
-        lensFlareVisibility /= 8.0;
     #endif
 }
 

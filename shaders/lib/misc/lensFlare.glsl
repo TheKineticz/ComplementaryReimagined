@@ -48,11 +48,7 @@ void DoLensFlare(inout vec3 color, vec3 viewPos, float dither) {
     vec2 lightPos = lightPos3.xy;
     vec3 screenPosSun = lightPos3 + 0.5;
 
-    #ifdef LENS_FLARE_VISIBILITY
-        float flareFactor = LENS_FLARE_VISIBILITY;
-    #else
-        float flareFactor = GetLensFlareVisibility(screenPosSun.xy, dither);
-    #endif
+    float flareFactor = GetLensFlareVisibility(screenPosSun.xy, dither);
 
     float str = length(lightPos * vec2(aspectRatio, 1.0));
     str = pow(clamp(str * 8.0, 0.0, 1.0), 2.0) - clamp(str * 3.0 - 1.5, 0.0, 1.0);
