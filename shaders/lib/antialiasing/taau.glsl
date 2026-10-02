@@ -21,18 +21,6 @@ const float taauReflectionShare = 0.3;
 const float taauNearHistoryScale = 0.2;
 const float taauHistoryHalfRecoveryDistance = 32.0;
 
-const float taauEncodeScale = 1.45 * TM_EXPOSURE;
-
-vec3 TAAUEncode(vec3 c) {
-    c = max(c * taauEncodeScale, 0.0);
-    return sqrt(c / (1.0 + c));
-}
-
-vec3 TAAUDecode(vec3 c) {
-    c *= c;
-    return c / (max(1.0 - c, 1e-3) * taauEncodeScale);
-}
-
 vec3 RGBToYCoCg(vec3 c) {
     return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
 }
@@ -205,7 +193,7 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     for (int y = 0; y < 3; y++) {
         for (int x = 0; x < 3; x++) {
             ivec2 coord = clamp(centerTexel + ivec2(x - 1, y - 1), ivec2(0), scaledViewSize - 1);
-            vec3 c = TAAUEncode(texelFetch(colortex0, coord, 0).rgb);
+            vec3 c = TAAEncode(texelFetch(colortex0, coord, 0).rgb);
             float w = sampleX[x] * sampleY[y];
             sampleSum += w * c;
             sampleWeight += w;

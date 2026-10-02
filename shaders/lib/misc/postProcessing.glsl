@@ -2,7 +2,7 @@
 // Complementary Shaders by EminGT //
 /////////////////////////////////////
 
-// Shared by composite5 and, when motion blur follows TAAU, composite6.
+// Post-processing in composite7, after the HDR temporal resolve and world blur.
 // common.glsl is included by the calling program.
 
 //////////Fragment Shader//////////Fragment Shader//////////Fragment Shader//////////
@@ -14,7 +14,7 @@ noperspective in vec2 texCoord;
     flat in vec3 upVec, sunVec;
 #endif
 
-#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAAU
+#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAA
     flat in float lensFlareVisibility;
 #endif
 
@@ -149,35 +149,20 @@ void DoBSLColorSaturation(inout vec3 color) {
 #endif
 
 //Includes//
-#ifdef BLOOM_FOG
-    #include "/lib/atmospherics/fog/bloomFog.glsl"
-#endif
-
-#if BLOOM_ENABLED == 1 || defined TAAU && defined COMPOSITE6
+#if BLOOM_ENABLED == 1 || MOTION_BLUR_EFFECT == 1
     #include "/lib/util/dither.glsl"
 #endif
 
-#if defined TAAU && defined COMPOSITE5
-    float GetLinearDepth(float depth) {
-        return (2.0 * near) / (far + near - depth * (far - near));
-    }
-#endif
-
-#ifdef TAAU
+#ifdef TAA
     #include "/lib/antialiasing/jitter.glsl"
 #endif
 
-#if defined TAAU && defined COMPOSITE5
-    #include "/lib/antialiasing/taa.glsl"
-    #include "/lib/antialiasing/taau.glsl"
-#endif
-
-#if defined TAAU && defined COMPOSITE6
+#if MOTION_BLUR_EFFECT == 1
     #include "/lib/misc/motionBlur.glsl"
 #endif
 
 #if LENSFLARE_MODE > 0 && defined OVERWORLD
-    #ifdef TAAU
+    #ifdef TAA
         #define LENS_FLARE_VISIBILITY lensFlareVisibility
     #endif
     #include "/lib/misc/lensFlare.glsl"
@@ -185,23 +170,15 @@ void DoBSLColorSaturation(inout vec3 color) {
 
 //Program//
 void main() {
-    #if defined TAAU && defined COMPOSITE5
-        // Upscale the HDR image first, so everything below runs after TAAU at output resolution.
-        // Depth, materials and bloom tiles are still the jittered render-resolution image.
-        vec3 color, temp;
-        float tempAlpha;
-        DoTAAU(color, temp, tempAlpha);
-        color = TAAUDecode(color);
+    vec3 color = texture2D(colortex0, texCoord).rgb;
+    #if MOTION_BLUR_EFFECT == 1
+        DoMotionBlur(color);
+    #endif
+    #ifdef TAA
+        // Depth, materials and bloom still describe this frame's jittered render-resolution image.
         vec2 sceneCoord = TAAJitter(texCoord, 0.5);
     #else
-        vec3 color = texture2D(colortex0, texCoord).rgb;
-        #ifdef TAAU
-            // composite5 left the upscaled HDR scene in colortex0 and kept history unblurred.
-            DoMotionBlur(color);
-            vec2 sceneCoord = TAAJitter(texCoord, 0.5);
-        #else
-            vec2 sceneCoord = texCoord;
-        #endif
+        vec2 sceneCoord = texCoord;
     #endif
 
     #if defined BLOOM_FOG || LENSFLARE_MODE > 0 && defined OVERWORLD
@@ -231,10 +208,6 @@ void main() {
     float dither = texture2DLod(noisetex, texCoord * view / 128.0, 0.0).b;
     #ifdef TAA
         dither = fract(dither + goldenRatio * mod(float(frameCounter), 3600.0));
-    #endif
-
-    #if defined BLOOM_FOG && !defined TAAU // composite4 removes it before TAAU
-        color /= GetBloomFog(lViewPos);
     #endif
 
     #if BLOOM_ENABLED == 1
@@ -277,11 +250,6 @@ void main() {
 
     /* DRAWBUFFERS:3 */
     gl_FragData[0] = vec4(color, 1.0);
-
-    #if defined TAAU && defined COMPOSITE5
-        /* DRAWBUFFERS:32 */
-        gl_FragData[1] = vec4(temp, tempAlpha);
-    #endif
 }
 
 #endif
@@ -295,7 +263,7 @@ noperspective out vec2 texCoord;
     flat out vec3 upVec, sunVec;
 #endif
 
-#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAAU
+#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAA
     flat out float lensFlareVisibility;
 #endif
 
@@ -306,7 +274,7 @@ noperspective out vec2 texCoord;
 //Common Functions//
 
 //Includes//
-#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAAU
+#if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAA
     #include "/lib/misc/lensFlareVisibility.glsl"
 #endif
 
@@ -321,8 +289,8 @@ void main() {
         sunVec = GetSunVector();
     #endif
 
-    #if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAAU
-        // Average the occlusion test over its dither offsets once, as nothing after TAAU smooths per-pixel dither
+    #if LENSFLARE_MODE > 0 && defined OVERWORLD && defined TAA
+        // Average occlusion here because lens flare now follows both temporal paths.
         vec4 clipPosSun = gbufferProjection * vec4(sunVec + 0.001, 1.0);
         vec2 screenPosSun = clipPosSun.xy / clipPosSun.w * 0.5 + 0.5;
         lensFlareVisibility = 0.0;

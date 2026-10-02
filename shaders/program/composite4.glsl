@@ -5,17 +5,15 @@
 //Common//
 #include "/lib/common.glsl"
 
-// TAAU runs in composite5, so it takes the scene from here with the bloom fog boost already removed
-#if defined TAAU_BLOOM && defined BLOOM_FOG
-    #define TAAU_BLOOM_FOG
-#endif
+// Generate bloom before TAA/U, then remove its fog boost from the HDR scene.
+// The bloom atlas keeps the boost; the temporal history and later blur passes do not.
 
 //////////Fragment Shader//////////Fragment Shader//////////Fragment Shader//////////
 #ifdef FRAGMENT_SHADER
 
 noperspective in vec2 texCoord;
 
-#if MOTION_BLUR_EFFECT == 1 && defined MOTION_BLUR_BLOOM_FOG_FIX || defined TAAU_BLOOM_FOG
+#ifdef BLOOM_FOG
     flat in vec3 upVec, sunVec;
 #endif
 
@@ -34,7 +32,7 @@ float weight[7] = float[7](1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0);
 
 vec2 view = vec2(viewWidth, viewHeight);
 
-#if MOTION_BLUR_EFFECT == 1 && defined MOTION_BLUR_BLOOM_FOG_FIX || defined TAAU_BLOOM_FOG
+#ifdef BLOOM_FOG
     float SdotU = dot(sunVec, upVec);
     float sunFactor = SdotU < 0.0 ? clamp(SdotU + 0.375, 0.0, 0.75) / 0.75 : clamp(SdotU + 0.03125, 0.0, 0.0625) / 0.0625;
 #endif
@@ -63,13 +61,8 @@ vec3 BloomTile(float lod, vec2 offset, vec2 scaledCoord) {
 }
 
 //Includes//
-#if MOTION_BLUR_EFFECT == 1 && defined MOTION_BLUR_BLOOM_FOG_FIX || defined TAAU_BLOOM_FOG
+#ifdef BLOOM_FOG
     #include "/lib/atmospherics/fog/bloomFog.glsl"
-#endif
-
-#if MOTION_BLUR_EFFECT == 1 && !defined TAAU
-    #include "/lib/util/dither.glsl"
-    #include "/lib/misc/motionBlur.glsl"
 #endif
 
 //Program//
@@ -98,15 +91,10 @@ void main() {
         #endif
     #endif
 
-    #if MOTION_BLUR_EFFECT == 1 && !defined TAAU
-        vec3 color = texelFetch(colortex0, texelCoord, 0).rgb;
-        DoMotionBlur(color);
-    #endif
+    #if defined TAAU_BLOOM || defined BLOOM_FOG
+        vec3 color = texelFetch(sceneTex, texelCoord, 0).rgb;
 
-    #ifdef TAAU_BLOOM
-        vec3 color = texelFetch(colortex11, texelCoord, 0).rgb;
-
-        #ifdef TAAU_BLOOM_FOG
+        #ifdef BLOOM_FOG
             float z0 = texture2D(depthtex0, ToBufferUV(texCoord)).r;
             vec4 screenPos = vec4(texCoord, z0, 1.0);
             vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
@@ -134,7 +122,7 @@ void main() {
     /* DRAWBUFFERS:3 */
     gl_FragData[0] = vec4(blur, 1.0);
 
-    #if MOTION_BLUR_EFFECT == 1 && !defined TAAU || defined TAAU_BLOOM
+    #if defined TAAU_BLOOM || defined BLOOM_FOG
         /* DRAWBUFFERS:30 */
         gl_FragData[1] = vec4(color, 1.0);
     #endif
@@ -147,7 +135,7 @@ void main() {
 
 noperspective out vec2 texCoord;
 
-#if MOTION_BLUR_EFFECT == 1 && defined MOTION_BLUR_BLOOM_FOG_FIX || defined TAAU_BLOOM_FOG
+#ifdef BLOOM_FOG
     flat out vec3 upVec, sunVec;
 #endif
 
@@ -165,7 +153,7 @@ void main() {
 
     texCoord = gl_MultiTexCoord0.xy;
 
-    #if MOTION_BLUR_EFFECT == 1 && defined MOTION_BLUR_BLOOM_FOG_FIX || defined TAAU_BLOOM_FOG
+    #ifdef BLOOM_FOG
         upVec = normalize(gbufferModelView[1].xyz);
         sunVec = GetSunVector();
     #endif

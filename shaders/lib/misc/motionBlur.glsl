@@ -1,13 +1,11 @@
-// Needs texCoord and dither.glsl, plus bloomFog.glsl for MOTION_BLUR_BLOOM_FOG_FIX.
-// Always samples HDR colortex0 before bloom and tonemapping; TAAU also needs jitter.glsl for depth.
+// Needs texCoord and dither.glsl, plus jitter.glsl when TAA is enabled.
+// Samples resolved HDR colortex0 after world blur, before bloom compositing and tonemapping.
 
 void DoMotionBlur(inout vec3 color) {
-    #ifdef TAAU
+    #ifdef TAA
         vec2 depthCoord = TAAJitter(texCoord, 0.5);
-        ivec2 depthTexel = ScaledTexelCoord(depthCoord);
     #else
         vec2 depthCoord = texCoord;
-        ivec2 depthTexel = texelCoord;
     #endif
     float z = texture2D(depthtex1, ToBufferUV(depthCoord)).x;
     float dither = Bayer64(gl_FragCoord.xy);
@@ -22,22 +20,6 @@ void DoMotionBlur(inout vec3 color) {
         vec4 viewPos = gbufferProjectionInverse * currentPosition;
         viewPos = gbufferModelViewInverse * viewPos;
         viewPos /= viewPos.w;
-        float lViewPos = length(viewPos.xyz);
-
-        #if defined DISTANT_HORIZONS || defined VOXY
-            #ifdef DISTANT_HORIZONS
-                float z1lod = texelFetch(dhDepthTex1, depthTexel, 0).r;
-                vec4 screenPos1Lod = vec4(texCoord, z1lod, 1.0);
-                vec4 viewPos1Lod = dhProjectionInverse * (screenPos1Lod * 2.0 - 1.0);
-            #elif defined VOXY
-                float z1lod = texelFetch(vxDepthTexOpaque, depthTexel, 0).r;
-                vec4 screenPos1Lod = vec4(texCoord, z1lod, 1.0);
-                vec4 viewPos1Lod = vxProjInv * (screenPos1Lod * 2.0 - 1.0);
-            #endif
-            viewPos1Lod /= viewPos1Lod.w;
-            lViewPos = min(lViewPos, length(viewPos1Lod.xyz));
-        #endif
-
         vec3 cameraOffset = cameraPosition - previousCameraPosition;
 
         vec4 previousPosition = viewPos + vec4(cameraOffset, 0.0);
@@ -61,39 +43,9 @@ void DoMotionBlur(inout vec3 color) {
             vec2 coordb = clamp(coord, doublePixel, 1.0 - doublePixel);
             vec3 sampleb = texture2DLod(colortex0, coordb, 0).rgb;
 
-            #ifdef MOTION_BLUR_BLOOM_FOG_FIX
-                float z1 = texture2D(depthtex1, coordb).r;
-                vec4 screenPos = vec4(coordb, z1, 1.0);
-                vec4 viewPos = gbufferProjectionInverse * (screenPos * 2.0 - 1.0);
-                viewPos /= viewPos.w;
-                float lViewPos = length(viewPos.xyz);
-
-                #if defined DISTANT_HORIZONS || defined VOXY
-                    #ifdef DISTANT_HORIZONS
-                        float z1lod = texture2D(dhDepthTex1, coordb).r;
-                        vec4 screenPos1Lod = vec4(texCoord, z1lod, 1.0);
-                        vec4 viewPos1Lod = dhProjectionInverse * (screenPos1Lod * 2.0 - 1.0);
-                    #elif defined VOXY
-                        float z1lod = texture2D(vxDepthTexOpaque, coordb).r;
-                        vec4 screenPos1Lod = vec4(texCoord, z1lod, 1.0);
-                        vec4 viewPos1Lod = vxProjInv * (screenPos1Lod * 2.0 - 1.0);
-                    #endif
-                    viewPos1Lod /= viewPos1Lod.w;
-                    lViewPos = min(lViewPos, length(viewPos1Lod.xyz));
-                #endif
-
-                // Remove bloom fog from mb samples or else we get edge artifacts
-                sampleb /= GetBloomFog(lViewPos);
-            #endif
-
             color += sampleb;
             mbwg += 1.0;
         }
         color /= mbwg;
-
-        #ifdef MOTION_BLUR_BLOOM_FOG_FIX
-            // Reapply bloom fog because we removed it from our samples
-            color *= GetBloomFog(lViewPos);
-        #endif
     }
 }

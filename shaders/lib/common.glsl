@@ -643,10 +643,6 @@
         #undef BLOOM_FOG
     #endif
 
-    #if BLOOM_ENABLED == 1 && MOTION_BLUR_EFFECT == 1 && !defined LOW_QUALITY_MOTION_BLUR && !defined TAAU
-        #define MOTION_BLUR_BLOOM_FOG_FIX
-    #endif
-
     #if defined TAAU && BLOOM_ENABLED == 1
         #define TAAU_BLOOM
     #endif
@@ -666,11 +662,7 @@
     #endif
 
     #ifdef BLOOM_FOG
-        #if WORLD_BLUR > 0
-            #define BLOOM_FOG_COMPOSITE3
-        #else
-            #define BLOOM_FOG_COMPOSITE1
-        #endif
+        #define BLOOM_FOG_COMPOSITE1
     #endif
 
     #if defined GBUFFERS_HAND || defined GBUFFERS_ENTITIES
