@@ -85,10 +85,8 @@ vec4 DoTAAU() {
 
     // Reflection-dominated translucents follow their mirror image
     vec2 reflection = texelFetch(colortex10, centerTexel, 0).rg;
-    if (!lodChunk && reflection.g > reflectionShare) {
-        vec4 ray = gbufferProjectionInverse * vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);
-        prvCoord = Reprojection(vec4(normalize(ray.xyz) * reflection.r, 1.0));
-    }
+    bool useRayReprojection = !lodChunk && reflection.g > reflectionShare;
+    float reprojectionDistance = reflection.r;
 
     #ifdef CLOUDS_REIMAGINED
         if (!lodChunk && nearest.z == 1.0) {
@@ -106,11 +104,16 @@ vec4 DoTAAU() {
             }
             // Top right pixel stores vlFactor
             if (cloudDepth > 0.0 && cloudDepth < 1.0 && any(notEqual(centerTexel, scaledViewSize - 1))) {
-                vec4 ray = gbufferProjectionInverse * vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);
-                prvCoord = Reprojection(vec4(normalize(ray.xyz) * (cloudDepth * cloudDepth * renderDistance), 1.0));
+                useRayReprojection = true;
+                reprojectionDistance = cloudDepth * cloudDepth * renderDistance;
             }
         }
     #endif
+
+    if (useRayReprojection) {
+        vec4 ray = gbufferProjectionInverse * vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);
+        prvCoord = Reprojection(vec4(normalize(ray.xyz) * reprojectionDistance, 1.0));
+    }
 
     vec2 centerOffset = vec2(centerTexel) + 0.5 - inputPos;
     vec3 dx = centerOffset.x + vec3(-1.0, 0.0, 1.0), dy = centerOffset.y + vec3(-1.0, 0.0, 1.0);
@@ -118,15 +121,14 @@ vec4 DoTAAU() {
     // -0.5 / ln(2) converts Gaussian weights to exp2
     vec2 sampleK = -0.7213475 / (sampleFilterSigma * sampleFilterSigma) * outputPerInput * outputPerInput;
     vec3 sampleX = exp2(dx2 * sampleK.x), sampleY = exp2(dy2 * sampleK.y);
-    vec3 stableX = exp2(dx2 * (-0.7213475 / (neighborhoodSigma * neighborhoodSigma)));
-    vec3 stableY = exp2(dy2 * (-0.7213475 / (neighborhoodSigma * neighborhoodSigma)));
+    vec3 neighborhoodX = exp2(dx2 * (-0.7213475 / (neighborhoodSigma * neighborhoodSigma)));
+    vec3 neighborhoodY = exp2(dy2 * (-0.7213475 / (neighborhoodSigma * neighborhoodSigma)));
     vec3 tentX = max(1.0 - abs(dx), 0.0), tentY = max(1.0 - abs(dy), 0.0);
 
     vec3 sampleSum = vec3(0.0), fill = vec3(0.0);
-    vec3 minColor = vec3(1e9), maxColor = vec3(-1e9);
-    vec3 stableSum = vec3(0.0), stableSquares = vec3(0.0);
-    vec3 reactiveSum = vec3(0.0), reactiveSquares = vec3(0.0);
-    float sampleWeight = 0.0, stableWeight = 0.0, reactiveWeight = 0.0;
+    // One neighborhood distribution drives change detection and clipping
+    vec3 neighborhoodSum = vec3(0.0), neighborhoodSquares = vec3(0.0);
+    float sampleWeight = 0.0, neighborhoodWeight = 0.0, neighborhoodSquaredWeight = 0.0;
     for (int y = 0; y < 3; y++) {
         for (int x = 0; x < 3; x++) {
             ivec2 coord = clamp(centerTexel + ivec2(x - 1, y - 1), ivec2(0), scaledViewSize - 1);
@@ -137,22 +139,15 @@ vec4 DoTAAU() {
             fill += tentX[x] * tentY[y] * c;
 
             vec3 ycocg = RGBToYCoCg(c);
-            minColor = min(minColor, ycocg);
-            maxColor = max(maxColor, ycocg);
-            float s = stableX[x] * stableY[y];
-            stableSum += s * ycocg;
-            stableSquares += s * ycocg * ycocg;
-            stableWeight += s;
-            float r = s * s;
-            reactiveSum += r * ycocg;
-            reactiveSquares += r * ycocg * ycocg;
-            reactiveWeight += r;
+            float s = neighborhoodX[x] * neighborhoodY[y];
+            neighborhoodSum += s * ycocg;
+            neighborhoodSquares += s * ycocg * ycocg;
+            neighborhoodWeight += s;
+            neighborhoodSquaredWeight += s * s;
         }
     }
-    vec3 stableMean = stableSum / stableWeight;
-    vec3 stableDeviation = sqrt(max(stableSquares / stableWeight - stableMean * stableMean, 0.0));
-    vec3 reactiveMean = reactiveSum / reactiveWeight;
-    vec3 reactiveDeviation = sqrt(max(reactiveSquares / reactiveWeight - reactiveMean * reactiveMean, 0.0));
+    vec3 neighborhoodMean = neighborhoodSum / neighborhoodWeight;
+    vec3 neighborhoodDeviation = sqrt(max(neighborhoodSquares / neighborhoodWeight - neighborhoodMean * neighborhoodMean, 0.0));
 
     vec3 historyMean, historyDeviation;
     vec4 history = SampleHistory(prvCoord, historyMean, historyDeviation);
@@ -170,14 +165,15 @@ vec4 DoTAAU() {
         float farness = (weightScale - nearHistoryScale) / (1.0 - nearHistoryScale);
         vec3 detail = historyDeviation * max(stillness, farness * farness);
 
-        vec3 spread = sqrt(stableDeviation * stableDeviation + detailNoiseScale * detailNoiseScale * detail * detail);
-        vec3 standardError = spread * sqrt(reactiveWeight) / stableWeight + 0.01;
-        float change = length((stableMean - historyMean) / standardError); // Color change relative to local variation
+        vec3 spread = sqrt(neighborhoodDeviation * neighborhoodDeviation + detailNoiseScale * detailNoiseScale * detail * detail);
+        // Squared weights estimate noise in the weighted neighborhood mean
+        vec3 standardError = spread * sqrt(neighborhoodSquaredWeight) / neighborhoodWeight + 0.01;
+        float change = length((neighborhoodMean - historyMean) / standardError); // Color change relative to local variation
         reactive = max(reactive, clamp((change - changeThreshold) / changeRange, 0.0, 1.0));
 
-        vec3 stableSpread = stableClipSigma * stableDeviation, reactiveSpread = reactiveClipSigma * reactiveDeviation;
-        vec3 boxMin = max(minColor, mix(stableMean - stableSpread, reactiveMean - reactiveSpread, reactive));
-        vec3 boxMax = min(maxColor, mix(stableMean + stableSpread, reactiveMean + reactiveSpread, reactive));
+        vec3 clipSpread = mix(stableClipSigma, reactiveClipSigma, reactive) * neighborhoodDeviation;
+        vec3 boxMin = neighborhoodMean - clipSpread;
+        vec3 boxMax = neighborhoodMean + clipSpread;
         clipped = ClipAABB(historyYCoCg, boxMin, boxMax);
         clipped = mix(historyYCoCg, clipped, max(min(sampleWeight / fullClipSampleWeight, 1.0), reactive));
 
