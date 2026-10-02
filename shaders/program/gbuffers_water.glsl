@@ -290,9 +290,9 @@ void main() {
     #ifdef TAAU
         // Reflections move like a mirror image, lying reflection distance beyond the surface
         #if WATER_REFLECT_QUALITY >= 0
-            vec4 taauReflection = vec4(lViewPos + refDist, fresnelM * color.a, 0.0, 1.0);
+            vec4 Reflection = vec4(lViewPos + refDist, fresnelM * color.a, 0.0, 1.0);
         #else
-            vec4 taauReflection = vec4(0.0, 0.0, 0.0, 1.0);
+            vec4 Reflection = vec4(0.0, 0.0, 0.0, 1.0);
         #endif
     #endif
 
@@ -312,11 +312,11 @@ void main() {
 
             #ifdef TAAU
                 /* RENDERTARGETS: 0,3,6,4,8,10 */
-                gl_FragData[5] = taauReflection;
+                gl_FragData[5] = Reflection;
             #endif
         #elif defined TAAU
             /* RENDERTARGETS: 0,3,6,10 */
-            gl_FragData[3] = taauReflection;
+            gl_FragData[3] = Reflection;
         #endif
     #elif WORLD_SPACE_REFLECTIONS > 0
         /* DRAWBUFFERS:0348 */
@@ -325,11 +325,11 @@ void main() {
 
         #ifdef TAAU
             /* RENDERTARGETS: 0,3,4,8,10 */
-            gl_FragData[4] = taauReflection;
+            gl_FragData[4] = Reflection;
         #endif
     #elif defined TAAU
         /* RENDERTARGETS: 0,3,10 */
-        gl_FragData[2] = taauReflection;
+        gl_FragData[2] = Reflection;
     #endif
 }
 

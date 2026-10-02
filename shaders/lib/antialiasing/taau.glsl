@@ -1,25 +1,25 @@
-const float taauSampleFilterSigma = 0.4;
-const float taauNeighborhoodSigma = 0.75;
-const float taauStableClipSigma = 2.5;
-const float taauReactiveClipSigma = 1.0;
+const float SampleFilterSigma = 0.4;
+const float NeighborhoodSigma = 0.75;
+const float StableClipSigma = 2.5;
+const float ReactiveClipSigma = 1.0;
 
-const float taauConsistentHistoryCap = 12.0;
-const float taauStableHistoryCap = 6.0;
-const float taauReactiveHistoryCap = 2.0;
+const float ConsistentHistoryCap = 12.0;
+const float StableHistoryCap = 6.0;
+const float ReactiveHistoryCap = 2.0;
 
-const float taauChangeThreshold = 2.0;
-const float taauChangeRange = 2.0;
-const float taauReactiveParallaxPixels = 1.0;
-const float taauFullClipSampleWeight = 2.0;
-const float taauResampleWeightLoss = 0.1;
-const float taauReactiveFillWeight = 2.0;
-const float taauDetailNoiseScale = 2.0;
-const float taauDetailMotionPixels = 1.0;
+const float ChangeThreshold = 2.0;
+const float ChangeRange = 2.0;
+const float ReactiveParallaxPixels = 1.0;
+const float FullClipSampleWeight = 2.0;
+const float ResampleWeightLoss = 0.1;
+const float ReactiveFillWeight = 2.0;
+const float DetailNoiseScale = 2.0;
+const float DetailMotionPixels = 1.0;
 
-const float taauReflectionShare = 0.3;
+const float ReflectionShare = 0.3;
 
-const float taauNearHistoryScale = 0.2;
-const float taauHistoryHalfRecoveryDistance = 32.0;
+const float NearHistoryScale = 0.2;
+const float HistoryHalfRecoveryDistance = 32.0;
 
 vec3 RGBToYCoCg(vec3 c) {
     return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
@@ -141,15 +141,15 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
         float focalLength = 0.5 * viewHeight * gbufferProjection[1][1];
         float inverseDistanceGap = abs(nearView.w / nearView.z - farView.w / farView.z);
         float parallax = focalLength * inverseDistanceGap * length(cameraShift.xy + ray * cameraShift.z);
-        reactive = min(parallax / taauReactiveParallaxPixels, 1.0);
+        reactive = min(parallax / ReactiveParallaxPixels, 1.0);
 
         float surfaceDistance = length(nearView.xyz / nearView.w);
-        weightScale = mix(taauNearHistoryScale, 1.0, 1.0 - exp2(-surfaceDistance / taauHistoryHalfRecoveryDistance));
+        weightScale = mix(NearHistoryScale, 1.0, 1.0 - exp2(-surfaceDistance / HistoryHalfRecoveryDistance));
     }
 
     // Reflection-dominated translucents follow their mirror image
     vec2 reflection = texelFetch(colortex10, centerTexel, 0).rg;
-    if (!lodChunk && reflection.g > taauReflectionShare) {
+    if (!lodChunk && reflection.g > ReflectionShare) {
         vec4 ray = gbufferProjectionInverse * vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);
         prvCoord = Reprojection(vec4(normalize(ray.xyz) * reflection.r, 1.0));
     }
@@ -179,10 +179,10 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
     vec2 centerOffset = vec2(centerTexel) + 0.5 - inputPos;
     vec3 dx = centerOffset.x + vec3(-1.0, 0.0, 1.0), dy = centerOffset.y + vec3(-1.0, 0.0, 1.0);
     vec3 dx2 = dx * dx, dy2 = dy * dy;
-    vec2 sampleK = -0.7213475 / (taauSampleFilterSigma * taauSampleFilterSigma) * outputPerInput * outputPerInput;
+    vec2 sampleK = -0.7213475 / (SampleFilterSigma * SampleFilterSigma) * outputPerInput * outputPerInput;
     vec3 sampleX = exp2(dx2 * sampleK.x), sampleY = exp2(dy2 * sampleK.y);
-    vec3 stableX = exp2(dx2 * (-0.7213475 / (taauNeighborhoodSigma * taauNeighborhoodSigma)));
-    vec3 stableY = exp2(dy2 * (-0.7213475 / (taauNeighborhoodSigma * taauNeighborhoodSigma)));
+    vec3 stableX = exp2(dx2 * (-0.7213475 / (NeighborhoodSigma * NeighborhoodSigma)));
+    vec3 stableY = exp2(dy2 * (-0.7213475 / (NeighborhoodSigma * NeighborhoodSigma)));
     vec3 tentX = max(1.0 - abs(dx), 0.0), tentY = max(1.0 - abs(dy), 0.0);
 
     vec3 sampleSum = vec3(0.0), fill = vec3(0.0);
@@ -224,42 +224,42 @@ void DoTAAU(out vec3 color, out vec3 temp, out float tempAlpha) {
                         historyWeight > 0.0 && !any(isnan(history)) && !any(isinf(history));
 
     vec3 clipped = vec3(0.0);
-    float maxWeight = taauReactiveHistoryCap;
+    float maxWeight = ReactiveHistoryCap;
     if (validHistory) {
         vec3 historyYCoCg = RGBToYCoCg(clamp(history.rgb, 0.0, 1.0));
 
         // Prevents thin detail flickering when standing still; distant detail barely moves on screen, so it keeps
         // the allowance while the camera moves
-        float stillness = clamp(1.0 - length((texCoord - prvCoord) * view) / taauDetailMotionPixels, 0.0, 1.0);
-        float farness = (weightScale - taauNearHistoryScale) / (1.0 - taauNearHistoryScale);
+        float stillness = clamp(1.0 - length((texCoord - prvCoord) * view) / DetailMotionPixels, 0.0, 1.0);
+        float farness = (weightScale - NearHistoryScale) / (1.0 - NearHistoryScale);
         vec3 detail = historyDeviation * max(stillness, farness * farness);
 
-        vec3 spread = sqrt(stableDeviation * stableDeviation + taauDetailNoiseScale * taauDetailNoiseScale * detail * detail);
+        vec3 spread = sqrt(stableDeviation * stableDeviation + DetailNoiseScale * DetailNoiseScale * detail * detail);
         vec3 standardError = spread * sqrt(reactiveWeight) / stableWeight + 0.01;
         float change = length((stableMean - historyMean) / standardError);
-        reactive = max(reactive, clamp((change - taauChangeThreshold) / taauChangeRange, 0.0, 1.0));
+        reactive = max(reactive, clamp((change - ChangeThreshold) / ChangeRange, 0.0, 1.0));
 
-        vec3 stableSpread = taauStableClipSigma * stableDeviation, reactiveSpread = taauReactiveClipSigma * reactiveDeviation;
+        vec3 stableSpread = StableClipSigma * stableDeviation, reactiveSpread = ReactiveClipSigma * reactiveDeviation;
         vec3 boxMin = max(minColor, mix(stableMean - stableSpread, reactiveMean - reactiveSpread, reactive));
         vec3 boxMax = min(maxColor, mix(stableMean + stableSpread, reactiveMean + reactiveSpread, reactive));
         clipped = ClipAABB(historyYCoCg, boxMin, boxMax);
-        clipped = mix(historyYCoCg, clipped, max(min(sampleWeight / taauFullClipSampleWeight, 1.0), reactive));
+        clipped = mix(historyYCoCg, clipped, max(min(sampleWeight / FullClipSampleWeight, 1.0), reactive));
 
         float rejection = length(clipped - historyYCoCg) / (0.5 * length(boxMax - boxMin) + 0.004);
         historyWeight /= 1.0 + rejection * rejection;
 
         vec2 texelFraction = fract(prvCoord * view - 0.5);
-        vec2 resample = 1.0 - taauResampleWeightLoss * 4.0 * texelFraction * (1.0 - texelFraction);
+        vec2 resample = 1.0 - ResampleWeightLoss * 4.0 * texelFraction * (1.0 - texelFraction);
         historyWeight *= resample.x * resample.y;
 
-        float stableCap = mix(taauConsistentHistoryCap, taauStableHistoryCap, min(change / taauChangeThreshold, 1.0));
-        maxWeight = mix(stableCap, taauReactiveHistoryCap, reactive) * weightScale;
+        float stableCap = mix(ConsistentHistoryCap, StableHistoryCap, min(change / ChangeThreshold, 1.0));
+        maxWeight = mix(stableCap, ReactiveHistoryCap, reactive) * weightScale;
         historyWeight = min(historyWeight, maxWeight);
     } else {
         historyWeight = 0.0;
     }
 
-    float fillWeight = max(1.0 + taauReactiveFillWeight * reactive - historyWeight - sampleWeight, 0.0);
+    float fillWeight = max(1.0 + ReactiveFillWeight * reactive - historyWeight - sampleWeight, 0.0);
     color = historyWeight * YCoCgToRGB(clipped) + sampleSum + fillWeight * fill;
     color = clamp(color / (historyWeight + sampleWeight + fillWeight), 0.0, 1.0);
     temp = color;
