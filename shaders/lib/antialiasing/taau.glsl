@@ -76,16 +76,6 @@ vec2 GetTAAUHistoryCoord(ivec2 sourceTexel, float opaqueDepth, vec4 viewPosition
     }
 #endif
 
-vec3 ClipTAAUMovingHistory(vec3 historyColor, vec3 colorSum, vec3 colorSquaredSum, out float clipDistance) {
-    vec3 mean = colorSum / 9.0;
-    vec3 sigma = sqrt(max(colorSquaredSum / 9.0 - mean * mean, 0.0));
-    vec3 historyYCoCg = RGBToYCoCg(historyColor);
-    vec3 clippedHistory = ClipAABB(historyYCoCg, mean - sigma, mean + sigma);
-
-    clipDistance = length(clippedHistory - historyYCoCg) / (length(sigma) + 0.01);
-    return YCoCgToRGB(clippedHistory);
-}
-
 vec4 DoTAAU() {
     // Map this output pixel to the jittered source buffer.
     vec2 jitter = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5;
@@ -93,8 +83,8 @@ vec4 DoTAAU() {
     ivec2 sourceTexel = clamp(ivec2(sourcePosition), ivec2(0), scaledViewSize - 1);
 
     vec3 currentColor = TAAEncode(texelFetch(colortex0, sourceTexel, 0).rgb);
-    vec2 texelCenterOffset = (vec2(sourceTexel) + 0.5 - sourcePosition) / renderScaleV;
-    float currentSampleWeight = exp(-2.5 * dot(texelCenterOffset, texelCenterOffset));
+    vec2 centerOffset = vec2(sourceTexel) + 0.5 - sourcePosition;
+    vec2 texelCenterOffset = centerOffset / renderScaleV;
 
     float opaqueDepth = texelFetch(depthtex1, sourceTexel, 0).r;
     float sceneDepth = texelFetch(depthtex0, sourceTexel, 0).r;
@@ -113,7 +103,14 @@ vec4 DoTAAU() {
         }
     #endif
 
-    bool isHand = opaqueDepth < handDepthThreshold;
+    // Extend hand treatment to the neighbouring silhouette pixels.
+    float handDepth = sceneDepth;
+    for (int i = 4; i < 8; i++) {
+        ivec2 coord = clamp(sourceTexel + neighbourhoodOffsets[i], ivec2(0), scaledViewSize - 1);
+        handDepth = min(handDepth, texelFetch(depthtex0, coord, 0).r);
+    }
+    bool isHand = handDepth < handDepthThreshold;
+    float currentSampleWeight = exp((isHand ? -3.125 : -2.5) * dot(texelCenterOffset, texelCenterOffset));
     bool isEntity = !isHand && (
         abs(float(materialMask) - 149.5) < 50.0 // Entity Reflection Handling (see common.glsl for details)
         || materialMask == 254 // No SSAO, No TAA, Reduce Reflection
@@ -121,8 +118,9 @@ vec4 DoTAAU() {
     bool isMoving = isHand || isEntity;
 
     // Reproject the visible surface into the previous frame.
-    bool isLodChunk;
-    vec2 historyCoord = GetTAAUHistoryCoord(sourceTexel, opaqueDepth, viewPosition, isLodChunk);
+    bool isLodChunk = false;
+    vec2 historyCoord = texCoord;
+    if (!isHand) historyCoord = GetTAAUHistoryCoord(sourceTexel, opaqueDepth, viewPosition, isLodChunk);
 
     #ifdef CLOUDS_REIMAGINED
         historyCoord = ReprojectTAAUCloud(
@@ -133,9 +131,9 @@ vec4 DoTAAU() {
 
     vec3 historyColor = SampleHistory(historyCoord);
 
-    if (historyColor == vec3(0.0) || any(isnan(historyColor))) {
+    if (historyColor == vec3(0.0) || any(isnan(historyColor)) || any(isinf(historyColor))) {
         // The history is unavailable on the first frame and invalid after some camera transitions.
-        return vec4(SampleFilteredCurrent(sourcePosition), 1.0);
+        return vec4(SampleFilteredCurrent(sourcePosition), isHand ? 0.0 : 1.0);
     }
 
     // Store the moving-object distance blend in alpha and recover it over four frames.
@@ -152,29 +150,41 @@ vec4 DoTAAU() {
     vec3 colorMax = currentColor;
     vec3 colorSum = vec3(0.0);
     vec3 colorSquaredSum = vec3(0.0);
-    if (isMoving) {
-        colorSum = RGBToYCoCg(currentColor);
-        colorSquaredSum = colorSum * colorSum;
-    }
+    float colorWeight = 0.0;
+    vec3 handFill = vec3(0.0);
 
     ivec2 maxSourceTexel = scaledViewSize - 1;
-    for (int i = 0; i < 8; i++) {
-        ivec2 neighbourTexel = clamp(sourceTexel + neighbourhoodOffsets[i], ivec2(0), maxSourceTexel);
-        vec3 neighbourColor = SampleNeighbourhood(neighbourTexel, sceneDepth, opaqueDepth,
-                                                  edge, colorMin, colorMax);
+    for (int i = 0; i < 9; i++) {
+        ivec2 offset = i < 8 ? neighbourhoodOffsets[i] : ivec2(0);
+        ivec2 neighbourTexel = clamp(sourceTexel + offset, ivec2(0), maxSourceTexel);
+        vec3 neighbourColor = i < 8 ? SampleNeighbourhood(neighbourTexel, sceneDepth, opaqueDepth,
+                                                         edge, colorMin, colorMax) : currentColor;
         if (isMoving) {
+            vec2 sampleOffset = centerOffset + vec2(offset);
+            // Hands favour nearby samples; entities keep the uniform neighbourhood.
+            float weight = isHand ? exp(-dot(sampleOffset, sampleOffset) / (2.0 * 0.75 * 0.75)) : 1.0;
             vec3 neighbourYCoCg = RGBToYCoCg(neighbourColor);
-            colorSum += neighbourYCoCg;
-            colorSquaredSum += neighbourYCoCg * neighbourYCoCg;
+            colorSum += weight * neighbourYCoCg;
+            colorSquaredSum += weight * neighbourYCoCg * neighbourYCoCg;
+            colorWeight += weight;
+            if (isHand) {
+                vec2 tent = max(1.0 - abs(sampleOffset), 0.0);
+                handFill += tent.x * tent.y * neighbourColor;
+            }
         }
     }
 
-    historyColor = ClipAABB(historyColor, colorMin, colorMax);
-    vec3 worldHistoryColor = historyColor; // Preserve the result before tighter moving-object clipping.
+    vec3 worldHistoryColor = ClipAABB(historyColor, colorMin, colorMax);
+    if (!isHand) historyColor = worldHistoryColor;
 
     float clipDistance = 0.0;
     if (isMoving) {
-        historyColor = ClipTAAUMovingHistory(historyColor, colorSum, colorSquaredSum, clipDistance);
+        vec3 mean = colorSum / colorWeight;
+        vec3 sigma = sqrt(max(colorSquaredSum / colorWeight - mean * mean, 0.0));
+        vec3 historyYCoCg = RGBToYCoCg(historyColor);
+        vec3 clippedHistory = ClipAABB(historyYCoCg, mean - sigma, mean + sigma);
+        clipDistance = length(clippedHistory - historyYCoCg) / (length(sigma) + (isHand ? 0.004 : 0.01));
+        historyColor = YCoCgToRGB(clippedHistory);
     }
 
     float historyWeight = GetHistoryWeight(historyCoord, opaqueDepth, materialMask, edge, isLodChunk);
@@ -184,9 +194,13 @@ vec4 DoTAAU() {
         resolvedColor = SampleFilteredCurrent(sourcePosition);
     } else if (isMoving) {
         float worldHistoryWeight = historyWeight;
-        historyWeight = min(historyWeight, 0.75) * exp(-4.0 * clipDistance);
+        // Two parts history to one part current colour, with gradual hand rejection.
+        historyWeight = isHand ? (2.0 / 3.0) / (1.0 + clipDistance * clipDistance)
+                               : min(historyWeight, 0.75) * exp(-4.0 * clipDistance);
 
-        vec3 filteredCurrent = mix(SampleFilteredCurrent(sourcePosition), currentColor, currentSampleWeight);
+        // Approximate the old Gaussian with the centre sample; bilinear fill replaces rejected history.
+        float sampleBlend = isHand ? currentSampleWeight / (3.0 * (1.0 - historyWeight)) : currentSampleWeight;
+        vec3 filteredCurrent = mix(isHand ? handFill : SampleFilteredCurrent(sourcePosition), currentColor, sampleBlend);
         resolvedColor = mix(historyColor, filteredCurrent, 1.0 - historyWeight);
 
         // Keep more world history on distant moving objects to reduce shimmer.
