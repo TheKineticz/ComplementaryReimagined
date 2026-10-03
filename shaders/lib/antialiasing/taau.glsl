@@ -147,8 +147,10 @@ vec4 DoTAAU() {
         color = SampleCurrent(inputPosition);
     } else if (moving) {
         float worldHistoryWeight = historyWeight;
-        historyWeight = min(historyWeight, 0.75) * exp(-4.0 * clipDistance);
-        vec3 current = mix(SampleCurrent(inputPosition), currentSample, sampleWeight);
+        historyWeight = min(historyWeight, 0.80) * exp(-4.0 * clipDistance);
+        // Bilinear reconstruction avoids cubic ringing on hand/entity edges.
+        vec3 current = TAAEncode(SampleTemporalColor(colortex0, inputPosition, scaledViewSizeF));
+        current = mix(current, currentSample, sampleWeight);
         color = mix(historyColor, current, 1.0 - historyWeight);
         // Keep more world history on distant moving objects to reduce shimmer
         vec3 worldColor = mix(worldHistory, currentSample, (1.0 - worldHistoryWeight) * sampleWeight);
