@@ -13,7 +13,7 @@ vec3 GetRainbow(vec3 translucentMult, vec3 nViewPos, float z0, float z1, float l
         float rainbowLength = far * 0.9;
         if (z1 == 1.0) lViewPos1 = rainbowLength;
 
-        float cloudLinearDepth = texelFetch(colortex5, texelCoord, 0).a;
+        float cloudLinearDepth = min(texelFetch(colortex5, texelCoord, 0).a, 1.0);
         float cloudDisMult = pow2(cloudLinearDepth + OSIEBCA * dither);
         lViewPos1 *= cloudDisMult;
 

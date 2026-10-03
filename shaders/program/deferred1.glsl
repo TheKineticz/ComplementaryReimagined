@@ -430,7 +430,7 @@ void main() {
     #ifdef SKY_EFFECT_REFLECTION_TRANSLUCENT
         waterRefColor = mix(waterRefColor, clouds.rgb, clouds.a);
     #endif
-    waterRefColor = sqrt(waterRefColor) * 0.5;
+    waterRefColor = min(sqrt(waterRefColor) * 0.5, vec3(1.0));
 
     #if defined LIGHTSHAFTS_ACTIVE && (LIGHTSHAFT_BEHAVIOUR == 1 && SHADOW_QUALITY >= 1 || defined END)
         if (all(equal(ivec2(gl_FragCoord.xy), scaledViewSize - 1))) // top right pixel stores vlFactor
