@@ -10,7 +10,7 @@ const int colortex7Format = RGBA16F;        //(cloud/water map on gbuffer) | ref
 const int colortex8Format = RGBA16F;        //SSR results for WSR, topmost translucent opacity
 const int colortex9Format = R32F;           //1x1 smoothed center depth for TAAU depth-of-field
 const int colortex10Format = RG16F;         //TAAU: translucent reflection distance & reflection share
-const int colortex11Format = R11F_G11F_B10F; //TAAU: scene color at render resolution for bloom
+const int colortex11Format = RGBA16F;       //TAAU: scene color for bloom & cloud depth/light shaft factor
 
 const int colortex12Format = RGBA8;         //Improved Rain
 const int colortex13Format = R8;            //Entity linear depth for vl blending
