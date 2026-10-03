@@ -2,8 +2,8 @@
 // Complementary Shaders by EminGT //
 /////////////////////////////////////
 
-// Full-resolution depth of field / distance blur after the temporal resolve.
-// Depth remains at render resolution; the colour image is already resolved HDR.
+// Full-size DoF / distance blur after TAA/U
+// Depth is still scaled, but the HDR color is full size
 
 //Common//
 #include "/lib/common.glsl"

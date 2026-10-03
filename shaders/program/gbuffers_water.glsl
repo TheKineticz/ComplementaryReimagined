@@ -288,7 +288,7 @@ void main() {
     #endif
 
     #ifdef TAAU
-        // Reflections move like a mirror image, lying reflection distance beyond the surface
+        // Mirror image distance = surface + reflection distance
         #if WATER_REFLECT_QUALITY >= 0
             vec4 Reflection = vec4(lViewPos + refDist, fresnelM * color.a, 0.0, 1.0);
         #else

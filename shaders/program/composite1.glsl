@@ -326,7 +326,7 @@ void main() {
     #endif
 
     #ifdef BLOOM_FOG_COMPOSITE1
-        color *= GetBloomFog(lViewPos); // Bloom generation uses this boost; composite4 removes it before TAA/U.
+        color *= GetBloomFog(lViewPos);
     #endif
 
     /* DRAWBUFFERS:0 */

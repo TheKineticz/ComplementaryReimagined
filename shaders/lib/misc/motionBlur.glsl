@@ -1,6 +1,3 @@
-// Needs texCoord and dither.glsl, plus jitter.glsl when TAA is enabled.
-// Samples resolved HDR colortex0 after world blur, before bloom compositing and tonemapping.
-
 void DoMotionBlur(inout vec3 color) {
     #ifdef TAA
         vec2 depthCoord = TAAJitter(texCoord, 0.5);

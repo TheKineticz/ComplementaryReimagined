@@ -433,7 +433,7 @@ void main() {
     waterRefColor = min(sqrt(waterRefColor) * 0.5, vec3(1.0));
 
     #if defined LIGHTSHAFTS_ACTIVE && (LIGHTSHAFT_BEHAVIOUR == 1 && SHADOW_QUALITY >= 1 || defined END)
-        if (all(equal(ivec2(gl_FragCoord.xy), scaledViewSize - 1))) // top right pixel stores vlFactor
+        if (all(equal(ivec2(gl_FragCoord.xy), scaledViewSize - 1))) // Top right pixel is used for vlFactor
             cloudLinearDepth = vlFactor;
     #endif
 

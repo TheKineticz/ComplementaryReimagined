@@ -5,8 +5,8 @@
 //Common//
 #include "/lib/common.glsl"
 
-// Resolve native TAA or TAAU in HDR. Only this pass writes temporal history;
-// depth of field, motion blur, bloom compositing and tonemapping follow it.
+// Resolve TAA/U in HDR and write its history here
+// DoF, motion blur, bloom and tonemapping run later
 
 //////////Fragment Shader//////////Fragment Shader//////////Fragment Shader//////////
 #ifdef FRAGMENT_SHADER

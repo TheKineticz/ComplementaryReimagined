@@ -12,7 +12,7 @@
         if (RENDER_SCALE_M >= 1.0) return uv;
         vec2 bufferSize = vec2(textureSize(source, 0));
         vec2 renderedSize = max(floor(bufferSize * RENDER_SCALE_M), vec2(1.0));
-        // Avoid unused pixels in generated mips
+        // Stop mips from reaching outside the rendered area
         float maxLod = max(floor(log2(min(renderedSize.x, renderedSize.y))) - 1.0, 0.0);
         lod = clamp(lod, 0.0, maxLod);
         vec2 bufferUV = ScaledBufferUV(source, uv);

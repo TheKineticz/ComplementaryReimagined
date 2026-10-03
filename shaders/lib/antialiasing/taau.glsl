@@ -1,5 +1,5 @@
 vec3 SampleCurrent(vec2 inputPosition) {
-    // Keep the reconstruction inside the rendered part of the HDR buffer.
+    // Keep samples inside the rendered area
     vec2 position = clamp(inputPosition, vec2(0.5), scaledViewSizeF - 0.5);
     return TAAEncode(SampleTemporal(colortex0, position, scaledViewSizeF));
 }
@@ -12,7 +12,7 @@ vec4 DoTAAU() {
     ivec2 inputCoord = clamp(ivec2(inputPosition), ivec2(0), scaledViewSize - 1);
 
     vec3 currentSample = TAAEncode(texelFetch(colortex0, inputCoord, 0).rgb);
-    // Sample distance in output pixels determines its contribution to this pixel.
+    // Give closer samples more weight
     vec2 sampleOffset = (vec2(inputCoord) + 0.5 - inputPosition) / renderScaleV;
     float sampleWeight = exp(-2.5 * dot(sampleOffset, sampleOffset));
 
@@ -66,14 +66,14 @@ vec4 DoTAAU() {
     #endif
 
     #ifdef CLOUDS_REIMAGINED
-        // Reproject sky clouds using their raymarched distance.
+        // Reproject sky clouds with their raymarched distance
         if (!moving && z0 == 1.0 && z1 == 1.0
             #if defined DISTANT_HORIZONS || defined VOXY
                 && !lodChunk
             #endif
         ) {
             float cloudDepth = texelFetch(colortex5, inputCoord, 0).a;
-            // Include clouds in the reconstruction footprint of a sky sample.
+            // Look for cloud depth in the other samples too
             if (cloudDepth == 1.0) {
                 ivec2 cloudBase = ivec2(floor(inputPosition - 0.5));
                 for (int y = 0; y < 2; y++) {
@@ -87,8 +87,8 @@ vec4 DoTAAU() {
                 }
             }
 
-            // Distances may exceed 1 in the floating-point target; exactly 1 means no cloud.
-            // The top-right texel can store light-shaft data.
+            // Cloud distance can go over 1.0, while exactly 1.0 means no cloud
+            // Top right pixel is used by light shafts
             if (cloudDepth > 0.0 && cloudDepth != 1.0 && any(notEqual(inputCoord, scaledViewSize - 1))) {
                 float cloudDistance = cloudDepth * cloudDepth * renderDistance;
                 vec4 cloudViewPos = vec4(normalize(viewPos1.xyz) * cloudDistance, 1.0);
@@ -103,14 +103,14 @@ vec4 DoTAAU() {
         return vec4(SampleCurrent(inputPosition), 1.0);
     }
 
-    // Alpha records the distance blend of moving objects, recovering over four frames.
+    // Store the moving object distance blend in alpha and recover it over four frames
     float previousAlpha = texelFetch(colortex2, clamp(ivec2(previousCoord * view), ivec2(0), ivec2(view) - 1), 0).a;
     float entityFactor = entity ? 1.0 - exp2(-0.05 * max(lViewPos1 - 8.0, 0.0)) : 0.0;
     float distanceFactor = moving ? entityFactor : previousAlpha;
     historyAlpha = moving ? entityFactor : min(previousAlpha + 0.25, 1.0);
     moving = moving || previousAlpha < 1.0;
 
-    // Gather RGB bounds and moving-object YCoCg moments from the same neighborhood.
+    // Get RGB bounds and moving object clipping data in one loop
     float edge = 0.0;
     vec3 colorMin = currentSample, colorMax = currentSample;
     vec3 colorSum = vec3(0.0), colorSquaredSum = vec3(0.0);
@@ -128,9 +128,9 @@ vec4 DoTAAU() {
         }
     }
     historyColor = ClipAABB(historyColor, colorMin, colorMax);
-    vec3 worldHistory = historyColor; // Before moving-object variance clipping
+    vec3 worldHistory = historyColor; // Before moving object clipping
 
-    // Moving objects use mean +/- one standard deviation; correction reduces history.
+    // Tighter clipping for moving objects, with less history when corrected
     float clipDistance = 0.0;
     if (moving) {
         vec3 mean = colorSum / 9.0;
@@ -150,7 +150,7 @@ vec4 DoTAAU() {
         historyWeight = min(historyWeight, 0.75) * exp(-4.0 * clipDistance);
         vec3 current = mix(SampleCurrent(inputPosition), currentSample, sampleWeight);
         color = mix(historyColor, current, 1.0 - historyWeight);
-        // Distant moving objects favor world accumulation to limit shimmer.
+        // Keep more world history on distant moving objects to reduce shimmer
         vec3 worldColor = mix(worldHistory, currentSample, (1.0 - worldHistoryWeight) * sampleWeight);
         color = mix(color, worldColor, distanceFactor);
     } else {

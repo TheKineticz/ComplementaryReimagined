@@ -2,8 +2,8 @@
 // Complementary Shaders by EminGT //
 /////////////////////////////////////
 
-// Post-processing in composite7, after the HDR temporal resolve and world blur.
-// common.glsl is included by the calling program.
+// Post processing after TAA/U and world blur
+// common.glsl is included by the program
 
 //////////Fragment Shader//////////Fragment Shader//////////Fragment Shader//////////
 #ifdef FRAGMENT_SHADER
@@ -168,7 +168,6 @@ void main() {
         DoMotionBlur(color);
     #endif
     #ifdef TAA
-        // Depth, materials and bloom still describe this frame's jittered render-resolution image.
         vec2 sceneCoord = TAAJitter(texCoord, 0.5);
     #else
         vec2 sceneCoord = texCoord;

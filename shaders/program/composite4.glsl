@@ -5,8 +5,8 @@
 //Common//
 #include "/lib/common.glsl"
 
-// Generate bloom before TAA/U, then remove its fog boost from the HDR scene.
-// The bloom atlas keeps the boost; the temporal history and later blur passes do not.
+// Generate bloom before TAA/U, then remove its fog boost from the scene
+// The bloom atlas keeps it, but history and later blur passes do not
 
 //////////Fragment Shader//////////Fragment Shader//////////Fragment Shader//////////
 #ifdef FRAGMENT_SHADER

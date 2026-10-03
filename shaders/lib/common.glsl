@@ -603,17 +603,16 @@
 
     #define ToBufferUV(uv) (RENDER_SCALE_M < 1.0 ? min(uv, 1.0 - 0.5 / vec2(scaledViewSize)) * renderScaleV : (uv))
     #define ToScreenUV(uv) ((uv) / renderScaleV)
-    // Passes after TAAU are full size, but depth and material buffers keep the scaled image
+    // Full-size passes still sample the scaled depth and material buffers
     #define ScaledTexelCoord(uv) min(ivec2((uv) * scaledViewSizeF), scaledViewSize - 1)
 
-    // Voxy depth buffers are already scaled
+    // Voxy natively supports scaled buffers
     #ifdef VOXY
         #define LodBufferUV(uv) (uv)
     #else
         #define LodBufferUV(uv) ToBufferUV(uv)
     #endif
     #define DoRenderScale(pos) pos.xy = pos.xy * renderScaleV + (renderScaleV - 1.0) * pos.w
-    // Avoid discard to preserve early depth testing
     #define RenderScaleSkipOutside() if (RENDER_SCALE_M < 1.0 && any(greaterThanEqual(gl_FragCoord.xy, vec2(scaledViewSize)))) return
 
     #ifdef OVERWORLD

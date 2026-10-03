@@ -47,7 +47,7 @@ vec3 YCoCgToRGB(vec3 c) {
     return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
 }
 
-// Positions and valid extents are in pixels; textures use the full-size allocation.
+// Position and size are in pixels, but the texture stays full size
 vec3 SampleTemporalColor(sampler2D colorTexture, vec2 position, vec2 size) {
     position = clamp(position, vec2(0.5), size - 0.5);
     return texture2DLod(colorTexture, position / view, 0).rgb;
@@ -91,9 +91,8 @@ vec3 SampleHistory(vec2 uv) {
     vec2 position = uv * view;
     vec3 color = SampleTemporal(colortex2, position, view);
     #if defined TAAU && TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
-        // Cubic negative weights can invent darker gaps and brighter edges.
-        // Bound the result by the four actual texels around the sample so
-        // repeated reprojection does not keep sharpening those extrema.
+        // Catmull-Rom can overshoot, so keep it inside the surrounding 2x2 texels
+        // This also stops it getting sharper every frame
         ivec2 base = ivec2(floor(position - 0.5));
         vec3 localMin = vec3(1e20), localMax = vec3(-1e20);
         for (int y = 0; y < 2; y++) {

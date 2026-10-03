@@ -5,8 +5,7 @@
 //Common//
 #include "/lib/common.glsl"
 
-// Copy the reduced-resolution HDR scene into an exactly sized bloom source.
-// Its mipmaps cannot pick up unused pixels outside the rendered viewport.
+// Copy scaled HDR to a matching bloom buffer so mipmaps stay inside the rendered area
 #ifdef FRAGMENT_SHADER
 void main() {
     vec3 color = texelFetch(colortex0, texelCoord, 0).rgb;
