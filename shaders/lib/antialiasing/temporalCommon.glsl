@@ -1,3 +1,32 @@
+#if TAA_SMOOTHING_M == 2
+    const float temporalBlendMinimum = 0.3;
+    const float temporalBlendVariable = 0.3;
+    const float temporalBlendConstant = 0.6;
+
+    const float regularEdge = 10.0;
+    const float extraEdgeMult = 2.0;
+
+    const float farEdgeDist = 128.0;
+#elif TAA_SMOOTHING_M == 3
+    const float temporalBlendMinimum = 0.35;
+    const float temporalBlendVariable = 0.2;
+    const float temporalBlendConstant = 0.7;
+
+    const float regularEdge = 6.0;
+    const float extraEdgeMult = 3.0;
+
+    const float farEdgeDist = 112.0;
+#elif TAA_SMOOTHING_M == 4
+    const float temporalBlendMinimum = 0.5;
+    const float temporalBlendVariable = 0.15;
+    const float temporalBlendConstant = 0.75;
+
+    const float regularEdge = 4.0;
+    const float extraEdgeMult = 3.5;
+
+    const float farEdgeDist = 96.0;
+#endif
+
 const float temporalEncodeScale = 1.45 * TM_EXPOSURE;
 
 vec3 TAAEncode(vec3 c) {
@@ -18,12 +47,15 @@ vec3 YCoCgToRGB(vec3 c) {
     return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
 }
 
-vec4 SampleHistory(vec2 uv, out vec3 localMean, out vec3 localDeviation) {
-    vec3 top, left, right, bottom;
-    vec4 history, center;
+// Positions and valid extents are in pixels; textures use the full-size allocation.
+vec3 SampleTemporalColor(sampler2D colorTexture, vec2 position, vec2 size) {
+    position = clamp(position, vec2(0.5), size - 0.5);
+    return texture2DLod(colorTexture, position / view, 0).rgb;
+}
+
+vec3 SampleTemporal(sampler2D colorTexture, vec2 position, vec2 size) {
     #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
         //Catmull-Rom sampling from Filmic SMAA presentation
-        vec2 position = uv * view;
         vec2 centerPosition = floor(position - 0.5) + 0.5;
         vec2 f = position - centerPosition;
         vec2 f2 = f * f;
@@ -36,44 +68,44 @@ vec4 SampleHistory(vec2 uv, out vec3 localMean, out vec3 localDeviation) {
         vec2 w3 =         c  * f3 -                c * f2;
 
         vec2 w12 = w1 + w2;
-        vec2 tc12 = (centerPosition + w2 / w12) / view;
-        vec2 tc0 = (centerPosition - 1.0) / view;
-        vec2 tc3 = (centerPosition + 2.0) / view;
-        top = texture2DLod(colortex2, vec2(tc12.x, tc0.y), 0).rgb;
-        left = texture2DLod(colortex2, vec2(tc0.x, tc12.y), 0).rgb;
-        center = texture2DLod(colortex2, tc12, 0);
-        right = texture2DLod(colortex2, vec2(tc3.x, tc12.y), 0).rgb;
-        bottom = texture2DLod(colortex2, vec2(tc12.x, tc3.y), 0).rgb;
-        vec4 color = vec4(top, 1.0)        * (w12.x * w0.y ) +
-                     vec4(left, 1.0)       * (w0.x  * w12.y) +
-                     vec4(center.rgb, 1.0) * (w12.x * w12.y) +
-                     vec4(right, 1.0)      * (w3.x  * w12.y) +
-                     vec4(bottom, 1.0)     * (w12.x * w3.y );
-        history = vec4(color.rgb / color.a, center.a);
+        vec2 tc12 = centerPosition + w2 / w12;
+        vec2 tc0 = centerPosition - 1.0;
+        vec2 tc3 = centerPosition + 2.0;
+        vec3 top = SampleTemporalColor(colorTexture, vec2(tc12.x, tc0.y), size);
+        vec3 left = SampleTemporalColor(colorTexture, vec2(tc0.x, tc12.y), size);
+        vec3 center = SampleTemporalColor(colorTexture, tc12, size);
+        vec3 right = SampleTemporalColor(colorTexture, vec2(tc3.x, tc12.y), size);
+        vec3 bottom = SampleTemporalColor(colorTexture, vec2(tc12.x, tc3.y), size);
+        vec4 color = vec4(top, 1.0)    * (w12.x * w0.y ) +
+                     vec4(left, 1.0)   * (w0.x  * w12.y) +
+                     vec4(center, 1.0) * (w12.x * w12.y) +
+                     vec4(right, 1.0)  * (w3.x  * w12.y) +
+                     vec4(bottom, 1.0) * (w12.x * w3.y );
+        return color.rgb / color.a;
     #else
-        center = texture2DLod(colortex2, uv, 0);
-        history = center;
-        vec2 offset = 1.5 / view;
-        top = texture2DLod(colortex2, uv - vec2(0.0, offset.y), 0).rgb;
-        left = texture2DLod(colortex2, uv - vec2(offset.x, 0.0), 0).rgb;
-        right = texture2DLod(colortex2, uv + vec2(offset.x, 0.0), 0).rgb;
-        bottom = texture2DLod(colortex2, uv + vec2(0.0, offset.y), 0).rgb;
+        return SampleTemporalColor(colorTexture, position, size);
     #endif
-
-    vec3 t0 = RGBToYCoCg(top), t1 = RGBToYCoCg(left), t2 = RGBToYCoCg(center.rgb), t3 = RGBToYCoCg(right);
-    vec3 t4 = RGBToYCoCg(bottom);
-    localMean = 0.2 * (t0 + t1 + t2 + t3 + t4);
-    vec3 squares = 0.2 * (t0 * t0 + t1 * t1 + t2 * t2 + t3 * t3 + t4 * t4);
-    localDeviation = sqrt(max(squares - localMean * localMean, 0.0));
-    return history;
 }
 
 vec3 SampleHistory(vec2 uv) {
-    #if TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
-        vec3 mean, deviation;
-        return SampleHistory(uv, mean, deviation).rgb;
+    vec2 position = uv * view;
+    vec3 color = SampleTemporal(colortex2, position, view);
+    #if defined TAAU && TAA_MOVEMENT_IMPROVEMENT_FILTER == 1
+        // Cubic negative weights can invent darker gaps and brighter edges.
+        // Bound the result by the four actual texels around the sample so
+        // repeated reprojection does not keep sharpening those extrema.
+        ivec2 base = ivec2(floor(position - 0.5));
+        vec3 localMin = vec3(1e20), localMax = vec3(-1e20);
+        for (int y = 0; y < 2; y++) {
+            for (int x = 0; x < 2; x++) {
+                ivec2 coord = clamp(base + ivec2(x, y), ivec2(0), ivec2(view) - 1);
+                vec3 h = texelFetch(colortex2, coord, 0).rgb;
+                localMin = min(localMin, h); localMax = max(localMax, h);
+            }
+        }
+        return clamp(color, localMin, localMax);
     #else
-        return texture2D(colortex2, uv).rgb;
+        return color;
     #endif
 }
 
@@ -114,3 +146,70 @@ ivec2 neighbourhoodOffsets[8] = ivec2[8](
     ivec2(-1, 0),
     ivec2( 0,-1)
 );
+
+float GetLinearDepth(float depth) {
+    return (2.0 * near) / (far + near - depth * (far - near));
+}
+
+vec3 SampleNeighbourhood(ivec2 coord, float z0, float z1, inout float edge, inout vec3 colorMin, inout vec3 colorMax) {
+    float z0CheckLinear = GetLinearDepth(texelFetch(depthtex0, coord, 0).r);
+    float z1CheckLinear = GetLinearDepth(texelFetch(depthtex1, coord, 0).r);
+    float z0Linear = GetLinearDepth(z0);
+    float z1Linear = GetLinearDepth(z1);
+    if (max(abs(z0CheckLinear - z0Linear), abs(z1CheckLinear - z1Linear)) > 0.09) {
+        edge = regularEdge;
+
+        float approxClosestDist = min(z0CheckLinear, z0Linear) * far;
+        if (approxClosestDist < farEdgeDist)
+            if (int(texelFetch(colortex6, coord, 0).g * 255.1) == 253) // Reduced Edge TAA (Leaves)
+                edge *= extraEdgeMult;
+    }
+
+    vec3 color = TAAEncode(texelFetch(colortex0, coord, 0).rgb);
+    colorMin = min(colorMin, color);
+    colorMax = max(colorMax, color);
+    return color;
+}
+
+float GetHistoryWeight(vec2 previousCoord, float z1, int materialMask, float edge, bool lodChunk) {
+    float blendMinimum = temporalBlendMinimum;
+    float blendVariable = temporalBlendVariable;
+    float blendConstant = temporalBlendConstant;
+
+    if (materialMask == 253) // Reduced Edge TAA (Leaves)
+        edge *= extraEdgeMult;
+
+    #if defined DISTANT_HORIZONS || defined VOXY
+        if (lodChunk) {
+            blendMinimum = 0.75;
+            blendVariable = 0.05;
+            blendConstant = 0.85;
+            edge = 0.0;
+        }
+    #endif
+
+    vec2 velocity = (texCoord - previousCoord.xy) * view;
+    float historyWeight = float(previousCoord.x > 0.0 && previousCoord.x < 1.0 &&
+                                previousCoord.y > 0.0 && previousCoord.y < 1.0);
+    float velocityFactor = dot(velocity, velocity) * 10.0;
+
+    #ifdef END
+        if (z1 == 1.0)
+        #if defined DISTANT_HORIZONS || defined VOXY
+            if (!lodChunk)
+        #endif
+        {
+            blendVariable *= 0.0;
+            #if LIGHTSHAFT_QUALI_DEFINE == 2 // Medium (Default)
+                edge = max(edge, regularEdge * 0.5);
+            #elif LIGHTSHAFT_QUALI_DEFINE == 3 // High
+                edge = max(edge, regularEdge * 0.75);
+            #elif LIGHTSHAFT_QUALI_DEFINE == 4 // Very High
+                edge = max(edge, regularEdge);
+            #endif
+        }
+    #endif
+
+    historyWeight *= max(exp(-velocityFactor) * blendVariable + blendConstant - min(length(cameraPosition - previousCameraPosition), 0.05) * edge, blendMinimum);
+    return historyWeight;
+}

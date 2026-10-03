@@ -1,36 +1,3 @@
-#if TAA_SMOOTHING_M == 2
-    float blendMinimum = 0.3;
-    float blendVariable = 0.3;
-    float blendConstant = 0.6;
-
-    float regularEdge = 10.0;
-    float extraEdgeMult = 2.0;
-
-    float farEdgeDist = 128.0;
-#elif TAA_SMOOTHING_M == 3
-    float blendMinimum = 0.35;
-    float blendVariable = 0.2;
-    float blendConstant = 0.7;
-
-    float regularEdge = 6.0;
-    float extraEdgeMult = 3.0;
-
-    float farEdgeDist = 112.0;
-#elif TAA_SMOOTHING_M == 4
-    float blendMinimum = 0.5;
-    float blendVariable = 0.15;
-    float blendConstant = 0.75;
-
-    float regularEdge = 4.0;
-    float extraEdgeMult = 3.5;
-
-    float farEdgeDist = 96.0;
-#endif
-
-float GetLinearDepth(float depth) {
-    return (2.0 * near) / (far + near - depth * (far - near));
-}
-
 void NeighbourhoodClamping(vec3 color, inout vec3 tempColor, float z0, float z1, inout float edge) {
     vec3 minclr = color; vec3 maxclr = minclr;
 
@@ -39,21 +6,7 @@ void NeighbourhoodClamping(vec3 color, inout vec3 tempColor, float z0, float z1,
     for (int i = 0; i < 8; i++) {
         ivec2 texelCoordM2 = texelCoordM1 + neighbourhoodOffsets[i];
 
-        float z0CheckLinear = GetLinearDepth(texelFetch(depthtex0, texelCoordM2, 0).r);
-        float z1CheckLinear = GetLinearDepth(texelFetch(depthtex1, texelCoordM2, 0).r);
-        float z0Linear = GetLinearDepth(z0);
-        float z1Linear = GetLinearDepth(z1);
-        if (max(abs(z0CheckLinear - z0Linear), abs(z1CheckLinear - z1Linear)) > 0.09) {
-            edge = regularEdge;
-
-            float approxClosestDist = min(z0CheckLinear, z0Linear) * far;
-            if (approxClosestDist < farEdgeDist)
-                if (int(texelFetch(colortex6, texelCoordM2, 0).g * 255.1) == 253) // Reduced Edge TAA (Leaves)
-                    edge *= extraEdgeMult;
-        }
-
-        vec3 clr = TAAEncode(texelFetch(colortex0, texelCoordM2, 0).rgb);
-        minclr = min(minclr, clr); maxclr = max(maxclr, clr);
+        SampleNeighbourhood(texelCoordM2, z0, z1, edge, minclr, maxclr);
     }
 
     tempColor = ClipAABB(tempColor, minclr, maxclr);
@@ -101,9 +54,9 @@ void DoTAA(inout vec3 color, inout vec3 temp, float z1) {
     vec2 prvCoord = texCoord;
     if (z1 > 0.56) prvCoord = Reprojection(viewPos1);
 
-	#if defined DISTANT_HORIZONS || defined VOXY
-        bool lodChunk = false;
-    	if (z1 == 1.0) {
+    bool lodChunk = false;
+    #if defined DISTANT_HORIZONS || defined VOXY
+        if (z1 == 1.0) {
             #ifdef VOXY
                 float vxDepth = texture2D(vxDepthTexOpaque, texCoord).r;
                 if (vxDepth < 1.0) {
@@ -120,7 +73,7 @@ void DoTAA(inout vec3 color, inout vec3 temp, float z1) {
                 }
             #endif
         }
-	#endif
+    #endif
 
     vec3 tempColor = SampleHistory(prvCoord);
 
@@ -132,41 +85,7 @@ void DoTAA(inout vec3 color, inout vec3 temp, float z1) {
     float edge = 0.0;
     NeighbourhoodClamping(color, tempColor, z0, z1, edge);
 
-    if (materialMask == 253) // Reduced Edge TAA (Leaves)
-        edge *= extraEdgeMult;
-
-    #if defined DISTANT_HORIZONS || defined VOXY
-        if (lodChunk) {
-            blendMinimum = 0.75;
-            blendVariable = 0.05;
-            blendConstant = 0.85;
-            edge = 0.0;
-        }
-    #endif
-
-    vec2 velocity = (texCoord - prvCoord.xy) * view;
-    float blendFactor = float(prvCoord.x > 0.0 && prvCoord.x < 1.0 &&
-                              prvCoord.y > 0.0 && prvCoord.y < 1.0);
-    float velocityFactor = dot(velocity, velocity) * 10.0;
-
-    #ifdef END
-        if (z1 == 1.0)
-        #if defined DISTANT_HORIZONS || defined VOXY
-            if (!lodChunk)
-        #endif
-        {
-            blendVariable *= 0.0;
-            #if LIGHTSHAFT_QUALI_DEFINE == 2 // Medium (Default)
-                edge = max(edge, regularEdge * 0.5);
-            #elif LIGHTSHAFT_QUALI_DEFINE == 3 // High
-                edge = max(edge, regularEdge * 0.75);
-            #elif LIGHTSHAFT_QUALI_DEFINE == 4 // Very High
-                edge = max(edge, regularEdge);
-            #endif
-        }
-    #endif
-
-    blendFactor *= max(exp(-velocityFactor) * blendVariable + blendConstant - min(length(cameraPosition - previousCameraPosition), 0.05) * edge, blendMinimum);
+    float blendFactor = GetHistoryWeight(prvCoord, z1, materialMask, edge, lodChunk);
 
     color = mix(color, tempColor, blendFactor);
     temp = color;

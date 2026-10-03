@@ -1,198 +1,160 @@
-const float sampleFilterSigma = 0.4;
-const float neighborhoodSigma = 0.75;
-const float stableClipSigma = 2.5;
-const float reactiveClipSigma = 1.0;
-
-const float consistentHistoryCap = 12.0;
-const float stableHistoryCap = 6.0;
-const float reactiveHistoryCap = 2.0;
-
-const float changeThreshold = 2.0;
-const float changeRange = 2.0;
-const float reactiveParallaxPixels = 1.0;
-const float fullClipSampleWeight = 2.0;
-const float resampleWeightLoss = 0.1;
-const float reactiveFillWeight = 2.0;
-const float detailNoiseScale = 2.0;
-const float detailMotionPixels = 1.0;
-
-const float reflectionShare = 0.3;
-
-const float nearHistoryScale = 0.2;
-const float historyHalfRecoveryDistance = 32.0;
-
-void DepthRange(sampler2D depthSampler, ivec2 texel, out vec3 nearest, out vec3 farthest) {
-    nearest = vec3(vec2(texel), texelFetch(depthSampler, texel, 0).r);
-    farthest = nearest;
-    for (int i = 4; i < 8; i++) { // Cardinal neighbors
-        ivec2 coord = clamp(texel + neighbourhoodOffsets[i], ivec2(0), scaledViewSize - 1);
-        float depth = texelFetch(depthSampler, coord, 0).r;
-        if (depth < nearest.z) nearest = vec3(vec2(coord), depth);
-        if (depth > farthest.z) farthest = vec3(vec2(coord), depth);
-    }
+vec3 SampleCurrent(vec2 inputPosition) {
+    // Keep the reconstruction inside the rendered part of the HDR buffer.
+    vec2 position = clamp(inputPosition, vec2(0.5), scaledViewSizeF - 0.5);
+    return TAAEncode(SampleTemporal(colortex0, position, scaledViewSizeF));
 }
 
 vec4 DoTAAU() {
-    vec2 outputPerInput = view / scaledViewSizeF;
-    vec2 jitterPx = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5;
-    vec2 inputPos = texCoord * scaledViewSizeF + jitterPx;
-    ivec2 centerTexel = clamp(ivec2(inputPos), ivec2(0), scaledViewSize - 1);
+    vec3 color;
+    float historyAlpha = 1.0;
+    vec2 jitter = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5;
+    vec2 inputPosition = texCoord * scaledViewSizeF + jitter;
+    ivec2 inputCoord = clamp(ivec2(inputPosition), ivec2(0), scaledViewSize - 1);
 
-    vec3 nearest, farthest;
-    DepthRange(depthtex0, centerTexel, nearest, farthest);
-    mat4 projectionInverse = gbufferProjectionInverse;
-    mat4 previousProjection = gbufferPreviousProjection;
-    bool lodChunk = false;
-    #if defined DISTANT_HORIZONS || defined VOXY
-        if (nearest.z == 1.0) {
-            #ifdef VOXY
-                DepthRange(vxDepthTexTrans, centerTexel, nearest, farthest);
-            #else
-                DepthRange(dhDepthTex, centerTexel, nearest, farthest);
-            #endif
-            if (nearest.z < 1.0) {
-                lodChunk = true;
-                #ifdef VOXY
-                    projectionInverse = vxProjInv;
-                    previousProjection = vxProjPrev;
-                #else
-                    projectionInverse = dhProjectionInverse;
-                    previousProjection = dhPreviousProjection;
-                #endif
-            }
+    vec3 currentSample = TAAEncode(texelFetch(colortex0, inputCoord, 0).rgb);
+    // Sample distance in output pixels determines its contribution to this pixel.
+    vec2 sampleOffset = (vec2(inputCoord) + 0.5 - inputPosition) / renderScaleV;
+    float sampleWeight = exp(-2.5 * dot(sampleOffset, sampleOffset));
+
+    float z1 = texelFetch(depthtex1, inputCoord, 0).r;
+    int materialMask = int(texelFetch(colortex6, inputCoord, 0).g * 255.1);
+
+    vec4 screenPos1 = vec4(texCoord, z1, 1.0);
+    vec4 viewPos1 = gbufferProjectionInverse * (screenPos1 * 2.0 - 1.0);
+    viewPos1 /= viewPos1.w;
+    float lViewPos1 = length(viewPos1);
+
+    #ifdef ENTITY_TAA_NOISY_CLOUD_FIX
+        float cloudLinearDepth = texture2D(colortex5, ToBufferUV(texCoord)).a;
+
+        if (pow2(cloudLinearDepth) * renderDistance < min(lViewPos1, renderDistance)) {
+            materialMask = 0;
         }
     #endif
 
-    float reactive = 1.0, weightScale = 1.0;
-    vec2 prvCoord = texCoord;
-    if (lodChunk || nearest.z >= 0.56) {
-        vec2 nearestUV = (nearest.xy + 0.5 - jitterPx) / scaledViewSizeF;
-        prvCoord += Reprojection(vec3(nearestUV, nearest.z), projectionInverse, previousProjection) - nearestUV;
+    bool hand = z1 < 0.56; // Hand depth is 0.44-0.56
+    bool entity = !hand && (
+        abs(materialMask - 149.5) < 50.0 // Entity Reflection Handling (see common.glsl for details)
+        || materialMask == 254 // No SSAO, No TAA, Reduce Reflection
+    );
+    bool moving = hand || entity;
 
-        vec2 ndc = texCoord * 2.0 - 1.0;
-        vec4 nearView = projectionInverse * vec4(ndc, nearest.z * 2.0 - 1.0, 1.0);
-        vec4 farView = projectionInverse * vec4(ndc, farthest.z * 2.0 - 1.0, 1.0);
-        vec3 cameraShift = mat3(gbufferModelView) * (cameraPosition - previousCameraPosition);
-        vec2 ray = ndc / vec2(gbufferProjection[0][0], gbufferProjection[1][1]);
-        float focalLength = 0.5 * viewHeight * gbufferProjection[1][1];
-        float inverseDistanceGap = abs(nearView.w / nearView.z - farView.w / farView.z);
-        float parallax = focalLength * inverseDistanceGap * length(cameraShift.xy + ray * cameraShift.z);
-        reactive = min(parallax / reactiveParallaxPixels, 1.0); // Less history at moving depth edges
+    float z0 = texelFetch(depthtex0, inputCoord, 0).r;
 
-        float surfaceDistance = length(nearView.xyz / nearView.w);
-        weightScale = mix(nearHistoryScale, 1.0, 1.0 - exp2(-surfaceDistance / historyHalfRecoveryDistance));
-    }
+    vec2 previousCoord = texCoord;
+    if (z1 > 0.56) previousCoord = Reprojection(viewPos1);
 
-    // Reflection-dominated translucents follow their mirror image
-    vec2 reflection = texelFetch(colortex10, centerTexel, 0).rg;
-    bool useRayReprojection = !lodChunk && reflection.g > reflectionShare;
-    float reprojectionDistance = reflection.r;
+    bool lodChunk = false;
+    #if defined DISTANT_HORIZONS || defined VOXY
+        if (z1 == 1.0) {
+            #ifdef VOXY
+                float vxDepth = texelFetch(vxDepthTexOpaque, inputCoord, 0).r;
+                if (vxDepth < 1.0) {
+                    vec3 vxCoord = vec3(texCoord, vxDepth);
+                    previousCoord = Reprojection(vxCoord, vxProjInv, vxProjPrev);
+                    lodChunk = true;
+                }
+            #elif defined DISTANT_HORIZONS
+                float dhDepth = texelFetch(dhDepthTex1, inputCoord, 0).r;
+                if (dhDepth < 1.0) {
+                    vec3 dhCoord = vec3(texCoord, dhDepth);
+                    previousCoord = Reprojection(dhCoord, dhProjectionInverse, dhPreviousProjection);
+                    lodChunk = true;
+                }
+            #endif
+        }
+    #endif
 
     #ifdef CLOUDS_REIMAGINED
-        if (!lodChunk && nearest.z == 1.0) {
-            float cloudDepth = texelFetch(colortex5, centerTexel, 0).a;
+        // Reproject sky clouds using their raymarched distance.
+        if (!moving && z0 == 1.0 && z1 == 1.0
+            #if defined DISTANT_HORIZONS || defined VOXY
+                && !lodChunk
+            #endif
+        ) {
+            float cloudDepth = texelFetch(colortex5, inputCoord, 0).a;
+            // Include clouds in the reconstruction footprint of a sky sample.
             if (cloudDepth == 1.0) {
-                ivec2 cloudBase = ivec2(floor(inputPos - 0.5));
+                ivec2 cloudBase = ivec2(floor(inputPosition - 0.5));
                 for (int y = 0; y < 2; y++) {
                     for (int x = 0; x < 2; x++) {
                         ivec2 coord = clamp(cloudBase + ivec2(x, y), ivec2(0), scaledViewSize - 1);
+                        if (all(equal(coord, inputCoord))) continue;
                         float depth = texelFetch(colortex5, coord, 0).a;
-                        if (depth > 0.0 && any(notEqual(coord, scaledViewSize - 1)))
-                            cloudDepth = min(cloudDepth, depth);
+                        if (depth > 0.0 && depth != 1.0 && any(notEqual(coord, scaledViewSize - 1)))
+                            cloudDepth = cloudDepth == 1.0 ? depth : min(cloudDepth, depth);
                     }
                 }
             }
-            // Top right pixel stores vlFactor
-            if (cloudDepth > 0.0 && cloudDepth < 1.0 && any(notEqual(centerTexel, scaledViewSize - 1))) {
-                useRayReprojection = true;
-                reprojectionDistance = cloudDepth * cloudDepth * renderDistance;
+
+            // Distances may exceed 1 in the floating-point target; exactly 1 means no cloud.
+            // The top-right texel can store light-shaft data.
+            if (cloudDepth > 0.0 && cloudDepth != 1.0 && any(notEqual(inputCoord, scaledViewSize - 1))) {
+                float cloudDistance = cloudDepth * cloudDepth * renderDistance;
+                vec4 cloudViewPos = vec4(normalize(viewPos1.xyz) * cloudDistance, 1.0);
+                previousCoord = Reprojection(cloudViewPos);
             }
         }
     #endif
 
-    if (useRayReprojection) {
-        vec4 ray = gbufferProjectionInverse * vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);
-        prvCoord = Reprojection(vec4(normalize(ray.xyz) * reprojectionDistance, 1.0));
+    vec3 historyColor = SampleHistory(previousCoord);
+
+    if (historyColor == vec3(0.0) || any(isnan(historyColor))) { // First frame or invalid history
+        return vec4(SampleCurrent(inputPosition), 1.0);
     }
 
-    vec2 centerOffset = vec2(centerTexel) + 0.5 - inputPos;
-    vec3 dx = centerOffset.x + vec3(-1.0, 0.0, 1.0), dy = centerOffset.y + vec3(-1.0, 0.0, 1.0);
-    vec3 dx2 = dx * dx, dy2 = dy * dy;
-    // -0.5 / ln(2) converts Gaussian weights to exp2
-    vec2 sampleK = -0.7213475 / (sampleFilterSigma * sampleFilterSigma) * outputPerInput * outputPerInput;
-    vec3 sampleX = exp2(dx2 * sampleK.x), sampleY = exp2(dy2 * sampleK.y);
-    vec3 neighborhoodX = exp2(dx2 * (-0.7213475 / (neighborhoodSigma * neighborhoodSigma)));
-    vec3 neighborhoodY = exp2(dy2 * (-0.7213475 / (neighborhoodSigma * neighborhoodSigma)));
-    vec3 tentX = max(1.0 - abs(dx), 0.0), tentY = max(1.0 - abs(dy), 0.0);
+    // Alpha records the distance blend of moving objects, recovering over four frames.
+    float previousAlpha = texelFetch(colortex2, clamp(ivec2(previousCoord * view), ivec2(0), ivec2(view) - 1), 0).a;
+    float entityFactor = entity ? 1.0 - exp2(-0.05 * max(lViewPos1 - 8.0, 0.0)) : 0.0;
+    float distanceFactor = moving ? entityFactor : previousAlpha;
+    historyAlpha = moving ? entityFactor : min(previousAlpha + 0.25, 1.0);
+    moving = moving || previousAlpha < 1.0;
 
-    vec3 sampleSum = vec3(0.0), fill = vec3(0.0);
-    // One neighborhood distribution drives change detection and clipping
-    vec3 neighborhoodSum = vec3(0.0), neighborhoodSquares = vec3(0.0);
-    float sampleWeight = 0.0, neighborhoodWeight = 0.0, neighborhoodSquaredWeight = 0.0;
-    for (int y = 0; y < 3; y++) {
-        for (int x = 0; x < 3; x++) {
-            ivec2 coord = clamp(centerTexel + ivec2(x - 1, y - 1), ivec2(0), scaledViewSize - 1);
-            vec3 c = TAAEncode(texelFetch(colortex0, coord, 0).rgb);
-            float w = sampleX[x] * sampleY[y];
-            sampleSum += w * c;
-            sampleWeight += w;
-            fill += tentX[x] * tentY[y] * c;
-
-            vec3 ycocg = RGBToYCoCg(c);
-            float s = neighborhoodX[x] * neighborhoodY[y];
-            neighborhoodSum += s * ycocg;
-            neighborhoodSquares += s * ycocg * ycocg;
-            neighborhoodWeight += s;
-            neighborhoodSquaredWeight += s * s;
+    // Gather RGB bounds and moving-object YCoCg moments from the same neighborhood.
+    float edge = 0.0;
+    vec3 colorMin = currentSample, colorMax = currentSample;
+    vec3 colorSum = vec3(0.0), colorSquaredSum = vec3(0.0);
+    if (moving) {
+        colorSum = RGBToYCoCg(currentSample);
+        colorSquaredSum = colorSum * colorSum;
+    }
+    ivec2 maxTexel = scaledViewSize - 1;
+    for (int i = 0; i < 8; i++) {
+        vec3 colorSample = SampleNeighbourhood(clamp(inputCoord + neighbourhoodOffsets[i], ivec2(0), maxTexel), z0, z1, edge, colorMin, colorMax);
+        if (moving) {
+            vec3 ycocg = RGBToYCoCg(colorSample);
+            colorSum += ycocg;
+            colorSquaredSum += ycocg * ycocg;
         }
     }
-    vec3 neighborhoodMean = neighborhoodSum / neighborhoodWeight;
-    vec3 neighborhoodDeviation = sqrt(max(neighborhoodSquares / neighborhoodWeight - neighborhoodMean * neighborhoodMean, 0.0));
+    historyColor = ClipAABB(historyColor, colorMin, colorMax);
+    vec3 worldHistory = historyColor; // Before moving-object variance clipping
 
-    vec3 historyMean, historyDeviation;
-    vec4 history = SampleHistory(prvCoord, historyMean, historyDeviation);
-    float historyWeight = history.a; // Accumulated sample weight
-    bool validHistory = all(greaterThan(prvCoord, vec2(0.0))) && all(lessThan(prvCoord, vec2(1.0))) &&
-                        historyWeight > 0.0 && !any(isnan(history)) && !any(isinf(history));
-
-    vec3 clipped = vec3(0.0);
-    float maxWeight = reactiveHistoryCap;
-    if (validHistory) {
-        vec3 historyYCoCg = RGBToYCoCg(clamp(history.rgb, 0.0, 1.0));
-
-        // Prevents thin detail flickering when still or far away
-        float stillness = clamp(1.0 - length((texCoord - prvCoord) * view) / detailMotionPixels, 0.0, 1.0);
-        float farness = (weightScale - nearHistoryScale) / (1.0 - nearHistoryScale);
-        vec3 detail = historyDeviation * max(stillness, farness * farness);
-
-        vec3 spread = sqrt(neighborhoodDeviation * neighborhoodDeviation + detailNoiseScale * detailNoiseScale * detail * detail);
-        // Squared weights estimate noise in the weighted neighborhood mean
-        vec3 standardError = spread * sqrt(neighborhoodSquaredWeight) / neighborhoodWeight + 0.01;
-        float change = length((neighborhoodMean - historyMean) / standardError); // Color change relative to local variation
-        reactive = max(reactive, clamp((change - changeThreshold) / changeRange, 0.0, 1.0));
-
-        vec3 clipSpread = mix(stableClipSigma, reactiveClipSigma, reactive) * neighborhoodDeviation;
-        vec3 boxMin = neighborhoodMean - clipSpread;
-        vec3 boxMax = neighborhoodMean + clipSpread;
-        clipped = ClipAABB(historyYCoCg, boxMin, boxMax);
-        clipped = mix(historyYCoCg, clipped, max(min(sampleWeight / fullClipSampleWeight, 1.0), reactive));
-
-        float rejection = length(clipped - historyYCoCg) / (0.5 * length(boxMax - boxMin) + 0.004);
-        historyWeight /= 1.0 + rejection * rejection;
-
-        vec2 texelFraction = fract(prvCoord * view - 0.5);
-        vec2 resample = 1.0 - resampleWeightLoss * 4.0 * texelFraction * (1.0 - texelFraction);
-        historyWeight *= resample.x * resample.y;
-
-        float stableCap = mix(consistentHistoryCap, stableHistoryCap, min(change / changeThreshold, 1.0));
-        maxWeight = mix(stableCap, reactiveHistoryCap, reactive) * weightScale;
-        historyWeight = min(historyWeight, maxWeight);
-    } else {
-        historyWeight = 0.0;
+    // Moving objects use mean +/- one standard deviation; correction reduces history.
+    float clipDistance = 0.0;
+    if (moving) {
+        vec3 mean = colorSum / 9.0;
+        vec3 sigma = sqrt(max(colorSquaredSum / 9.0 - mean * mean, 0.0));
+        vec3 historyYCoCg = RGBToYCoCg(historyColor);
+        vec3 clipped = ClipAABB(historyYCoCg, mean - sigma, mean + sigma);
+        clipDistance = length(clipped - historyYCoCg) / (length(sigma) + 0.01);
+        historyColor = YCoCgToRGB(clipped);
     }
 
-    float fillWeight = max(1.0 + reactiveFillWeight * reactive - historyWeight - sampleWeight, 0.0);
-    vec3 color = historyWeight * YCoCgToRGB(clipped) + sampleSum + fillWeight * fill;
-    color = clamp(color / (historyWeight + sampleWeight + fillWeight), 0.0, 1.0);
-    return vec4(color, min(historyWeight + sampleWeight, maxWeight));
+    float historyWeight = GetHistoryWeight(previousCoord, z1, materialMask, edge, lodChunk);
+
+    if (historyWeight == 0.0) {
+        color = SampleCurrent(inputPosition);
+    } else if (moving) {
+        float worldHistoryWeight = historyWeight;
+        historyWeight = min(historyWeight, 0.75) * exp(-4.0 * clipDistance);
+        vec3 current = mix(SampleCurrent(inputPosition), currentSample, sampleWeight);
+        color = mix(historyColor, current, 1.0 - historyWeight);
+        // Distant moving objects favor world accumulation to limit shimmer.
+        vec3 worldColor = mix(worldHistory, currentSample, (1.0 - worldHistoryWeight) * sampleWeight);
+        color = mix(color, worldColor, distanceFactor);
+    } else {
+        color = mix(historyColor, currentSample, (1.0 - historyWeight) * sampleWeight);
+    }
+    return vec4(clamp(color, 0.0, 1.0), historyAlpha);
 }
