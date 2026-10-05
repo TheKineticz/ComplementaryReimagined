@@ -1,7 +1,6 @@
 const float handDepthThreshold = 0.56; // Hand depth is 0.44-0.56
 
 vec3 SampleFilteredCurrent(vec2 sourcePosition) {
-    // Keep samples inside the rendered area.
     sourcePosition = clamp(sourcePosition, vec2(0.5), scaledViewSizeF - 0.5);
     return TAAEncode(SampleTemporal(colortex0, sourcePosition, scaledViewSizeF));
 }
@@ -84,7 +83,6 @@ bool IsTAAUEntity(ivec2 sourceTexel) {
 }
 
 vec4 DoTAAU() {
-    // Map this output pixel to the jittered source buffer.
     vec2 jitter = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5;
     vec2 sourcePosition = texCoord * scaledViewSizeF + jitter;
     ivec2 sourceTexel = clamp(ivec2(sourcePosition), ivec2(0), scaledViewSize - 1);
@@ -114,7 +112,6 @@ vec4 DoTAAU() {
         float cloudLinearDepth = texture2D(colortex5, ToBufferUV(texCoord)).a;
         float viewDistance = length(viewPosition);
         if (pow2(cloudLinearDepth) * renderDistance < min(viewDistance, renderDistance)) {
-            // The material is obstructed by the cloud volume.
             materialMask = 0;
             isEntity = false;
         }
@@ -125,7 +122,6 @@ vec4 DoTAAU() {
     bool isMoving = isHand || isEntity;
     float currentSampleWeight = exp((isHand ? -3.125 : -2.5) * dot(texelCenterOffset, texelCenterOffset));
 
-    // Reproject the visible surface into the previous frame.
     bool isLodChunk = false;
     vec2 historyCoord = texCoord;
     if (!isHand) historyCoord = GetTAAUHistoryCoord(sourceTexel, opaqueDepth, viewPosition, isLodChunk);
@@ -159,7 +155,6 @@ vec4 DoTAAU() {
     float historyAlpha = isMoving ? 0.0 : min(previousHistoryAlpha + 0.25, 1.0);
     isMoving = isMoving || previousHistoryAlpha < 1.0;
 
-    // Gather RGB bounds and moving-object clipping data in one neighbourhood pass.
     float edge = 0.0;
     vec3 colorMin = currentColor;
     vec3 colorMax = currentColor;
@@ -176,7 +171,6 @@ vec4 DoTAAU() {
                                                          edge, colorMin, colorMax) : currentColor;
         if (isMoving) {
             vec2 sampleOffset = centerOffset + vec2(offset);
-            // Hands favour nearby samples; entities keep the uniform neighbourhood.
             float weight = isHand ? exp(-dot(sampleOffset, sampleOffset) / (2.0 * 0.75 * 0.75)) : 1.0;
             vec3 neighbourYCoCg = RGBToYCoCg(neighbourColor);
             colorSum += weight * neighbourYCoCg;
@@ -220,7 +214,6 @@ vec4 DoTAAU() {
         historyAlpha = isHand ? 0.0 : (isEntity ? 2.0 : 1.0);
     } else if (isMoving && distanceBlendFactor < 1.0) {
         float worldHistoryWeight = historyWeight;
-        // Two parts history to one part current colour, with gradual hand rejection.
         historyWeight = isHand ? (2.0 / 3.0) / (1.0 + clipDistance * clipDistance)
                                : min(historyWeight, 0.75) * exp(-4.0 * clipDistance);
 
@@ -234,7 +227,6 @@ vec4 DoTAAU() {
                               (1.0 - worldHistoryWeight) * currentSampleWeight);
         resolvedColor = mix(resolvedColor, worldColor, distanceBlendFactor);
     } else {
-        // Static surfaces, and entities with full history confidence.
         resolvedColor = mix(worldHistoryColor, currentColor, (1.0 - historyWeight) * currentSampleWeight);
     }
 
