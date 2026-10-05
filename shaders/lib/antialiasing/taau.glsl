@@ -76,6 +76,13 @@ vec2 GetTAAUHistoryCoord(ivec2 sourceTexel, float opaqueDepth, vec4 viewPosition
     }
 #endif
 
+// Entities move without motion vectors, so camera reprojection can't follow them.
+bool IsTAAUEntity(ivec2 sourceTexel) {
+    int materialMask = int(texelFetch(colortex6, sourceTexel, 0).g * 255.1);
+    return abs(float(materialMask) - 149.5) < 50.0 // Entity Reflection Handling (see common.glsl for details)
+        || materialMask == 254; // No SSAO, No TAA, Reduce Reflection
+}
+
 vec4 DoTAAU() {
     // Map this output pixel to the jittered source buffer.
     vec2 jitter = TAAJitter(vec2(0.0), 1.0) * scaledViewSizeF * 0.5;
@@ -93,29 +100,30 @@ vec4 DoTAAU() {
     vec4 screenPosition = vec4(texCoord, opaqueDepth, 1.0);
     vec4 viewPosition = gbufferProjectionInverse * (screenPosition * 2.0 - 1.0);
     viewPosition /= viewPosition.w;
-    float viewDistance = length(viewPosition);
+
+    // Extend hand and entity treatment to the neighbouring silhouette pixels, which jitter would otherwise toggle.
+    float nearestDepth = sceneDepth;
+    bool isEntity = IsTAAUEntity(sourceTexel);
+    for (int i = 4; i < 8; i++) {
+        ivec2 neighbourTexel = clamp(sourceTexel + neighbourhoodOffsets[i], ivec2(0), scaledViewSize - 1);
+        nearestDepth = min(nearestDepth, texelFetch(depthtex0, neighbourTexel, 0).r);
+        isEntity = isEntity || IsTAAUEntity(neighbourTexel);
+    }
 
     #ifdef ENTITY_TAA_NOISY_CLOUD_FIX
         float cloudLinearDepth = texture2D(colortex5, ToBufferUV(texCoord)).a;
+        float viewDistance = length(viewPosition);
         if (pow2(cloudLinearDepth) * renderDistance < min(viewDistance, renderDistance)) {
             // The material is obstructed by the cloud volume.
             materialMask = 0;
+            isEntity = false;
         }
     #endif
 
-    // Extend hand treatment to the neighbouring silhouette pixels.
-    float handDepth = sceneDepth;
-    for (int i = 4; i < 8; i++) {
-        ivec2 coord = clamp(sourceTexel + neighbourhoodOffsets[i], ivec2(0), scaledViewSize - 1);
-        handDepth = min(handDepth, texelFetch(depthtex0, coord, 0).r);
-    }
-    bool isHand = handDepth < handDepthThreshold;
-    float currentSampleWeight = exp((isHand ? -3.125 : -2.5) * dot(texelCenterOffset, texelCenterOffset));
-    bool isEntity = !isHand && (
-        abs(float(materialMask) - 149.5) < 50.0 // Entity Reflection Handling (see common.glsl for details)
-        || materialMask == 254 // No SSAO, No TAA, Reduce Reflection
-    );
+    bool isHand = nearestDepth < handDepthThreshold;
+    isEntity = isEntity && !isHand;
     bool isMoving = isHand || isEntity;
+    float currentSampleWeight = exp((isHand ? -3.125 : -2.5) * dot(texelCenterOffset, texelCenterOffset));
 
     // Reproject the visible surface into the previous frame.
     bool isLodChunk = false;
@@ -136,15 +144,22 @@ vec4 DoTAAU() {
         return vec4(SampleFilteredCurrent(sourcePosition), isHand ? 0.0 : 1.0);
     }
 
-    // Store the moving-object distance blend in alpha and recover it over four frames.
+    // History alpha recovers from 0 to 1 over four frames after a hand or entity leaves the pixel.
+    // Entity pixels store 2 + their history confidence instead.
     ivec2 historyTexel = clamp(ivec2(historyCoord * view), ivec2(0), ivec2(view) - 1);
     float previousHistoryAlpha = texelFetch(colortex2, historyTexel, 0).a;
-    float entityDistanceFactor = isEntity ? 1.0 - exp2(-0.05 * max(viewDistance - 8.0, 0.0)) : 0.0;
+    float previousConfidence = clamp(previousHistoryAlpha - 2.0, 0.0, 1.0);
+    if (previousHistoryAlpha >= 2.0) previousHistoryAlpha = 0.0;
+
+    // At a silhouette the nearest surface is the entity, not the background behind it.
+    vec4 entityViewPosition = gbufferProjectionInverse * (vec4(texCoord, nearestDepth, 1.0) * 2.0 - 1.0);
+    float entityDistance = length(entityViewPosition.xyz / entityViewPosition.w);
+    float entityDistanceFactor = isEntity ? 1.0 - exp2(-0.05 * max(entityDistance - 8.0, 0.0)) : 0.0;
     float distanceBlendFactor = isMoving ? entityDistanceFactor : previousHistoryAlpha;
-    float historyAlpha = isMoving ? entityDistanceFactor : min(previousHistoryAlpha + 0.25, 1.0);
+    float historyAlpha = isMoving ? 0.0 : min(previousHistoryAlpha + 0.25, 1.0);
     isMoving = isMoving || previousHistoryAlpha < 1.0;
 
-    // Gather RGB bounds and moving-object clipping data in one neighborhood pass.
+    // Gather RGB bounds and moving-object clipping data in one neighbourhood pass.
     float edge = 0.0;
     vec3 colorMin = currentColor;
     vec3 colorMax = currentColor;
@@ -175,6 +190,7 @@ vec4 DoTAAU() {
     }
 
     vec3 worldHistoryColor = ClipAABB(historyColor, colorMin, colorMax);
+    float worldClipDistance = length(historyColor - worldHistoryColor) / (length(colorMax - colorMin) + 0.01);
     if (!isHand) historyColor = worldHistoryColor;
 
     float clipDistance = 0.0;
@@ -187,12 +203,22 @@ vec4 DoTAAU() {
         historyColor = YCoCgToRGB(clippedHistory);
     }
 
+    if (isEntity) {
+        // Build confidence over half a second while the history stays within the neighbourhood's colour range,
+        // as it does for stationary entities. A mismatch halves it, since jitter alone causes some at the edges.
+        float historyConfidence = worldClipDistance < 0.1 ? min(previousConfidence + 2.0 * frameTime, 1.0)
+                                                          : previousConfidence * 0.5;
+        distanceBlendFactor = max(distanceBlendFactor, historyConfidence);
+        historyAlpha = 2.0 + historyConfidence;
+    }
+
     float historyWeight = GetHistoryWeight(historyCoord, opaqueDepth, materialMask, edge, isLodChunk);
 
     vec3 resolvedColor;
     if (historyWeight == 0.0) {
         resolvedColor = SampleFilteredCurrent(sourcePosition);
-    } else if (isMoving) {
+        historyAlpha = isHand ? 0.0 : (isEntity ? 2.0 : 1.0);
+    } else if (isMoving && distanceBlendFactor < 1.0) {
         float worldHistoryWeight = historyWeight;
         // Two parts history to one part current colour, with gradual hand rejection.
         historyWeight = isHand ? (2.0 / 3.0) / (1.0 + clipDistance * clipDistance)
@@ -203,12 +229,13 @@ vec4 DoTAAU() {
         vec3 filteredCurrent = mix(isHand ? handFill : SampleFilteredCurrent(sourcePosition), currentColor, sampleBlend);
         resolvedColor = mix(historyColor, filteredCurrent, 1.0 - historyWeight);
 
-        // Keep more world history on distant moving objects to reduce shimmer.
+        // Keep more world history on distant or confident entities to reduce shimmer.
         vec3 worldColor = mix(worldHistoryColor, currentColor,
                               (1.0 - worldHistoryWeight) * currentSampleWeight);
         resolvedColor = mix(resolvedColor, worldColor, distanceBlendFactor);
     } else {
-        resolvedColor = mix(historyColor, currentColor, (1.0 - historyWeight) * currentSampleWeight);
+        // Static surfaces, and entities with full history confidence.
+        resolvedColor = mix(worldHistoryColor, currentColor, (1.0 - historyWeight) * currentSampleWeight);
     }
 
     return vec4(clamp(resolvedColor, 0.0, 1.0), historyAlpha);
