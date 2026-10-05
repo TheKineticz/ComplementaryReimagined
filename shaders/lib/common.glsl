@@ -155,7 +155,7 @@
     #define DISTANT_LIGHT_BOKEH
 
     #define TAA_DEFINE -1 //[-1 0 1]
-    #define RENDER_SCALE_PCT 100 //[50 67 75 100]
+    #define RENDER_SCALE_PCT 100 //[50 65 75 85 100]
     #define TAA_SMOOTHING 3 //[2 3 4]
     #define TAA_JITTER 1 //[0 1 2 3]
     #define TAA_MOVEMENT_IMPROVEMENT_FILTER 1 //[0 1]
@@ -582,10 +582,12 @@
         #define TAAU 1
         #if RENDER_SCALE_PCT == 50
             #define RENDER_SCALE_M 0.50
-        #elif RENDER_SCALE_PCT == 67
-            #define RENDER_SCALE_M 0.67
+        #elif RENDER_SCALE_PCT == 65
+            #define RENDER_SCALE_M 0.65
         #elif RENDER_SCALE_PCT == 75
             #define RENDER_SCALE_M 0.75
+        #elif RENDER_SCALE_PCT == 85
+            #define RENDER_SCALE_M 0.85
         #endif
         #define TAA_JITTER_M 3
         #define TAA_SMOOTHING_M 3
