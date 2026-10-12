@@ -126,6 +126,16 @@ vec4 DoTAAU() {
         return vec4(SampleFilteredCurrent(sourcePosition), isHand ? 0.0 : 1.0);
     }
 
+    vec2 reflection = texelFetch(colortex10, sourceTexel, 0).rg;
+    if (!isHand && !isLodChunk && reflection.g > 0.2) {
+        vec4 ray = gbufferProjectionInverse * vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);
+        vec2 mirrorCoord = Reprojection(vec4(normalize(ray.xyz / ray.w) * reflection.r, 1.0));
+        if (all(greaterThan(mirrorCoord, vec2(0.0))) && all(lessThan(mirrorCoord, vec2(1.0)))) {
+            float mirrorWeight = min(reflection.g, 1.0) * smoothstep(0.2, 0.4, reflection.g);
+            historyColor = mix(historyColor, SampleHistory(mirrorCoord), mirrorWeight);
+        }
+    }
+
     // History alpha recovers from 0 to 1 over four frames after a hand or entity leaves the pixel.
     // Entity pixels use 2 + confidence to keep the two states separate.
     ivec2 historyTexel = clamp(ivec2(historyCoord * view), ivec2(0), ivec2(view) - 1);
